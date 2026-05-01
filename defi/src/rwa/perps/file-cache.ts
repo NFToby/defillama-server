@@ -52,6 +52,7 @@ async function storeData(subPath: string, data: any): Promise<void> {
         await fs.promises.writeFile(filePath, JSON.stringify(data));
     } catch (e) {
         console.error(`Error storing data to ${filePath}:`, (e as any)?.message);
+        throw e;
     }
 }
 

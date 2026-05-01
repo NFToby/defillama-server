@@ -2,8 +2,9 @@ jest.mock("../spreadsheet", () => ({
   getCsvData: jest.fn(),
 }));
 
+import fs from "fs";
 import { toFiniteNumberOrZero, getPercentChangeOrNull, perpsSlug, computeProtocolFees, groupBy } from "./utils";
-import { fileNameNormalizer, mergeHistoricalData } from "./file-cache";
+import { fileNameNormalizer, mergeHistoricalData, storeRouteData } from "./file-cache";
 import { buildPerpsList } from "./list";
 import {
   buildAllAggregateHistoricalCharts,
@@ -439,6 +440,19 @@ describe("fileNameNormalizer", () => {
 
   it("decodes URI components", () => {
     expect(fileNameNormalizer("hello%20world.json")).toBe("helloworld.json");
+  });
+});
+
+describe("storeRouteData", () => {
+  it("rejects when the cache file write fails", async () => {
+    const error = new Error("disk full");
+    const writeFileSpy = jest.spyOn(fs.promises, "writeFile").mockRejectedValueOnce(error);
+    const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(storeRouteData("test-write-failure.json", { ok: true })).rejects.toThrow("disk full");
+
+    writeFileSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
   });
 });
 
