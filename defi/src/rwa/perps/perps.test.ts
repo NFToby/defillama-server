@@ -6,9 +6,12 @@ import { toFiniteNumberOrZero, getPercentChangeOrNull, perpsSlug, computeProtoco
 import { fileNameNormalizer, mergeHistoricalData } from "./file-cache";
 import { buildPerpsList } from "./list";
 import {
+  buildAllAggregateHistoricalCharts,
+  canReusePerpsAggregateHistoricalCharts,
   buildContractBreakdownCharts,
   buildCategoryHistoricalCharts,
   buildOverviewBreakdownCharts,
+  getPerpsMetadataHash,
   buildPerpsIdMap,
   buildVenueHistoricalCharts,
 } from "./aggregate";
@@ -493,6 +496,63 @@ describe("buildPerpsIdMap", () => {
   });
 });
 
+describe("getPerpsMetadataHash", () => {
+  it("is stable across metadata order and object key order", () => {
+    const first = getPerpsMetadataHash([
+      { id: "xyz:meta", data: { venue: "xyz", contract: "xyz:META", category: ["Equities"], fee: 0.01 } as any },
+      { id: "flx:gold", data: { referenceAssetGroup: "Commodities", contract: "flx:GOLD" } },
+    ]);
+    const second = getPerpsMetadataHash([
+      { id: "flx:gold", data: { contract: "flx:GOLD", referenceAssetGroup: "Commodities" } },
+      { id: "xyz:meta", data: { category: ["Equities"], contract: "xyz:META", venue: "xyz", fee: 0.02 } as any },
+    ]);
+    const changed = getPerpsMetadataHash([
+      { id: "flx:gold", data: { contract: "flx:GOLD", referenceAssetGroup: "Commodities" } },
+      { id: "xyz:meta", data: { category: ["Equities"], contract: "xyz:META", venue: "xyz-v2" } },
+    ]);
+
+    expect(first).toBe(second);
+    expect(first).not.toBe(changed);
+  });
+});
+
+describe("canReusePerpsAggregateHistoricalCharts", () => {
+  it("only reuses aggregate charts when daily sync and metadata inputs both match", () => {
+    const aggregateSyncMetadata = {
+      metadataHash: "hash-a",
+      lastDailySyncTimestamp: "2026-01-01T00:00:00.000Z",
+    };
+
+    expect(canReusePerpsAggregateHistoricalCharts({
+      updatedDailyRecords: 0,
+      lastDailySyncTimestamp: "2026-01-01T00:00:00.000Z",
+      metadataHash: "hash-a",
+      aggregateSyncMetadata,
+    })).toBe(true);
+
+    expect(canReusePerpsAggregateHistoricalCharts({
+      updatedDailyRecords: 0,
+      lastDailySyncTimestamp: "2026-01-02T00:00:00.000Z",
+      metadataHash: "hash-a",
+      aggregateSyncMetadata,
+    })).toBe(false);
+
+    expect(canReusePerpsAggregateHistoricalCharts({
+      updatedDailyRecords: 1,
+      lastDailySyncTimestamp: "2026-01-01T00:00:00.000Z",
+      metadataHash: "hash-a",
+      aggregateSyncMetadata,
+    })).toBe(false);
+
+    expect(canReusePerpsAggregateHistoricalCharts({
+      updatedDailyRecords: 0,
+      lastDailySyncTimestamp: "2026-01-01T00:00:00.000Z",
+      metadataHash: "hash-b",
+      aggregateSyncMetadata,
+    })).toBe(false);
+  });
+});
+
 describe("buildVenueHistoricalCharts", () => {
   it("builds lean historical constituent rows grouped by venue slug", () => {
     const result = buildVenueHistoricalCharts(
@@ -568,6 +628,59 @@ describe("buildVenueHistoricalCharts", () => {
           volume24h: 2,
         },
       ],
+    });
+  });
+});
+
+describe("buildAllAggregateHistoricalCharts", () => {
+  it("matches the existing aggregate chart helpers while sharing row normalization", () => {
+    const dailyRecords = [
+      { id: "xyz:meta", timestamp: 100, open_interest: "10", volume_24h: "3" },
+      { id: "xyz:meta", timestamp: 200, open_interest: "12", volume_24h: "4" },
+      { id: "flx:gold", timestamp: 200, open_interest: "7", volume_24h: "2" },
+      { id: "km:bond", timestamp: 200, open_interest: "5", volume_24h: "1" },
+    ];
+    const metadata = [
+      {
+        id: "xyz:meta",
+        data: {
+          contract: "xyz:META",
+          venue: "xyz",
+          referenceAsset: "Meta",
+          referenceAssetGroup: "US Equities",
+          assetClass: ["Single stock synthetic perp"],
+          category: ["RWA Perpetuals", "Equities"],
+        },
+      },
+      {
+        id: "flx:gold",
+        data: {
+          contract: "flx:GOLD",
+          venue: "flx",
+          referenceAsset: "Gold",
+          referenceAssetGroup: "Commodities",
+          assetClass: ["Commodity synthetic perp"],
+          category: ["Commodities"],
+        },
+      },
+      {
+        id: "km:bond",
+        data: {
+          contract: "km:BOND",
+          venue: "km",
+          referenceAsset: "Bond",
+          assetClass: ["Fixed income synthetic perp"],
+        },
+      },
+    ];
+
+    const result = buildAllAggregateHistoricalCharts(dailyRecords, metadata);
+
+    expect(result).toEqual({
+      venueCharts: buildVenueHistoricalCharts(dailyRecords, metadata),
+      categoryCharts: buildCategoryHistoricalCharts(dailyRecords, metadata),
+      overviewBreakdownCharts: buildOverviewBreakdownCharts(dailyRecords, metadata),
+      contractBreakdownCharts: buildContractBreakdownCharts(dailyRecords, metadata),
     });
   });
 });

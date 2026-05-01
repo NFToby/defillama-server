@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { toStringArrayOrNull, toStringOrNull } from "../utils";
 import { UNKNOWN_PERPS_ASSET_GROUP, normalizePerpsAssetGroup } from "./server-helpers";
 import { perpsSlug, toFiniteNumberOrZero } from "./utils";
@@ -39,6 +40,22 @@ export type AggregateHistoricalRow = {
 export type PerpsChartMetricKey = "openInterest" | "volume24h" | "markets";
 export type PerpsOverviewBreakdown = "venue" | "assetGroup" | "assetClass" | "baseAsset";
 export type PerpsBreakdownChartRow = { timestamp: number } & Record<string, number>;
+export type PerpsAggregateHistoricalCharts = {
+  venueCharts: Record<string, AggregateHistoricalRow[]>;
+  categoryCharts: Record<string, AggregateHistoricalRow[]>;
+  overviewBreakdownCharts: Record<string, PerpsBreakdownChartRow[]>;
+  contractBreakdownCharts: Record<string, PerpsBreakdownChartRow[]>;
+};
+export type PerpsAggregateSyncMetadata = {
+  metadataHash?: string;
+  lastDailySyncTimestamp?: string | null;
+};
+
+type AggregateHistoricalContext = {
+  rows: AggregateHistoricalRow[];
+  rowsByVenue: Record<string, AggregateHistoricalRow[]>;
+  rowsByAssetGroup: Record<string, AggregateHistoricalRow[]>;
+};
 
 const BREAKDOWN_METRIC_KEYS: PerpsChartMetricKey[] = ["openInterest", "volume24h", "markets"];
 const OVERVIEW_BREAKDOWNS_BY_TARGET = {
@@ -55,6 +72,52 @@ function getMetadataMap(metadata: MetadataRecord[]) {
     }
   }
   return metadataMap;
+}
+
+function stableStringify(value: any): string {
+  if (value === undefined) return "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (!value || typeof value !== "object") return JSON.stringify(value);
+
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+}
+
+export function getPerpsMetadataHash(metadata: MetadataRecord[]): string {
+  const normalizedMetadata = metadata
+    .map((entry) => {
+      const data = entry.data ?? {};
+      return {
+        id: entry.id,
+        data: {
+          contract: data.contract,
+          venue: data.venue,
+          referenceAsset: data.referenceAsset,
+          referenceAssetGroup: data.referenceAssetGroup,
+          assetClass: data.assetClass,
+          category: data.category,
+        },
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return createHash("sha256").update(stableStringify(normalizedMetadata)).digest("hex");
+}
+
+export function canReusePerpsAggregateHistoricalCharts({
+  updatedDailyRecords,
+  lastDailySyncTimestamp,
+  metadataHash,
+  aggregateSyncMetadata,
+}: {
+  updatedDailyRecords: number;
+  lastDailySyncTimestamp: string | null;
+  metadataHash: string;
+  aggregateSyncMetadata: PerpsAggregateSyncMetadata | null;
+}): boolean {
+  return (
+    updatedDailyRecords === 0 &&
+    aggregateSyncMetadata?.metadataHash === metadataHash &&
+    aggregateSyncMetadata?.lastDailySyncTimestamp === lastDailySyncTimestamp
+  );
 }
 
 function normalizeCategoryList(value: unknown): string[] {
@@ -97,6 +160,18 @@ function buildBaseHistoricalRow(record: DailyRecord, metadataMap: Map<string, Me
 function buildHistoricalRows(dailyRecords: DailyRecord[], metadata: MetadataRecord[]): AggregateHistoricalRow[] {
   const metadataMap = getMetadataMap(metadata);
   return dailyRecords.map((record) => buildBaseHistoricalRow(record, metadataMap));
+}
+
+function buildAggregateHistoricalContext(
+  dailyRecords: DailyRecord[],
+  metadata: MetadataRecord[]
+): AggregateHistoricalContext {
+  const rows = buildHistoricalRows(dailyRecords, metadata);
+  return {
+    rows,
+    rowsByVenue: buildGroupMap(rows, (row) => perpsSlug(row.venue)),
+    rowsByAssetGroup: buildGroupMap(rows, (row) => perpsSlug(getAssetGroupLabel(row))),
+  };
 }
 
 function sortHistoricalRows(rows: AggregateHistoricalRow[]) {
@@ -212,24 +287,18 @@ export function buildPerpsIdMap(metadata: MetadataRecord[]): Record<string, stri
   return idMap;
 }
 
-export function buildVenueHistoricalCharts(
-  dailyRecords: DailyRecord[],
-  metadata: MetadataRecord[]
+function sortVenueHistoricalCharts(
+  chartsByVenue: Record<string, AggregateHistoricalRow[]>
 ): Record<string, AggregateHistoricalRow[]> {
-  const chartsByVenue = buildGroupMap(buildHistoricalRows(dailyRecords, metadata), (row) => perpsSlug(row.venue));
-
+  const sortedChartsByVenue: Record<string, AggregateHistoricalRow[]> = {};
   for (const venueKey in chartsByVenue) {
-    sortHistoricalRows(chartsByVenue[venueKey]);
+    sortedChartsByVenue[venueKey] = sortHistoricalRows([...chartsByVenue[venueKey]]);
   }
 
-  return chartsByVenue;
+  return sortedChartsByVenue;
 }
 
-export function buildCategoryHistoricalCharts(
-  dailyRecords: DailyRecord[],
-  metadata: MetadataRecord[]
-): Record<string, AggregateHistoricalRow[]> {
-  const rows = buildHistoricalRows(dailyRecords, metadata);
+function buildCategoryHistoricalChartsFromRows(rows: AggregateHistoricalRow[]): Record<string, AggregateHistoricalRow[]> {
   const chartsByCategory: Record<string, AggregateHistoricalRow[]> = {};
 
   for (const row of rows) {
@@ -252,14 +321,9 @@ export function buildCategoryHistoricalCharts(
   return chartsByCategory;
 }
 
-export function buildOverviewBreakdownCharts(
-  dailyRecords: DailyRecord[],
-  metadata: MetadataRecord[]
-): Record<string, PerpsBreakdownChartRow[]> {
-  const rows = buildHistoricalRows(dailyRecords, metadata);
+function buildOverviewBreakdownChartsFromContext(context: AggregateHistoricalContext): Record<string, PerpsBreakdownChartRow[]> {
+  const { rows, rowsByVenue, rowsByAssetGroup } = context;
   const charts: Record<string, PerpsBreakdownChartRow[]> = {};
-  const rowsByVenue = buildGroupMap(rows, (row) => perpsSlug(row.venue));
-  const rowsByAssetGroup = buildGroupMap(rows, (row) => perpsSlug(getAssetGroupLabel(row)));
 
   for (const metric of BREAKDOWN_METRIC_KEYS) {
     for (const breakdown of OVERVIEW_BREAKDOWNS_BY_TARGET.all) {
@@ -291,14 +355,9 @@ export function buildOverviewBreakdownCharts(
   return charts;
 }
 
-export function buildContractBreakdownCharts(
-  dailyRecords: DailyRecord[],
-  metadata: MetadataRecord[]
-): Record<string, PerpsBreakdownChartRow[]> {
-  const rows = buildHistoricalRows(dailyRecords, metadata);
+function buildContractBreakdownChartsFromContext(context: AggregateHistoricalContext): Record<string, PerpsBreakdownChartRow[]> {
+  const { rows, rowsByVenue, rowsByAssetGroup } = context;
   const charts: Record<string, PerpsBreakdownChartRow[]> = {};
-  const rowsByVenue = buildGroupMap(rows, (row) => perpsSlug(row.venue));
-  const rowsByAssetGroup = buildGroupMap(rows, (row) => perpsSlug(getAssetGroupLabel(row)));
 
   for (const metric of BREAKDOWN_METRIC_KEYS) {
     charts[`contract-breakdown/all/${metric.toLowerCase()}.json`] = buildBreakdownChartRows(
@@ -331,4 +390,46 @@ export function buildContractBreakdownCharts(
   }
 
   return charts;
+}
+
+export function buildAllAggregateHistoricalCharts(
+  dailyRecords: DailyRecord[],
+  metadata: MetadataRecord[]
+): PerpsAggregateHistoricalCharts {
+  const context = buildAggregateHistoricalContext(dailyRecords, metadata);
+  return {
+    venueCharts: sortVenueHistoricalCharts(context.rowsByVenue),
+    categoryCharts: buildCategoryHistoricalChartsFromRows(context.rows),
+    overviewBreakdownCharts: buildOverviewBreakdownChartsFromContext(context),
+    contractBreakdownCharts: buildContractBreakdownChartsFromContext(context),
+  };
+}
+
+export function buildVenueHistoricalCharts(
+  dailyRecords: DailyRecord[],
+  metadata: MetadataRecord[]
+): Record<string, AggregateHistoricalRow[]> {
+  const rows = buildHistoricalRows(dailyRecords, metadata);
+  return sortVenueHistoricalCharts(buildGroupMap(rows, (row) => perpsSlug(row.venue)));
+}
+
+export function buildCategoryHistoricalCharts(
+  dailyRecords: DailyRecord[],
+  metadata: MetadataRecord[]
+): Record<string, AggregateHistoricalRow[]> {
+  return buildCategoryHistoricalChartsFromRows(buildHistoricalRows(dailyRecords, metadata));
+}
+
+export function buildOverviewBreakdownCharts(
+  dailyRecords: DailyRecord[],
+  metadata: MetadataRecord[]
+): Record<string, PerpsBreakdownChartRow[]> {
+  return buildOverviewBreakdownChartsFromContext(buildAggregateHistoricalContext(dailyRecords, metadata));
+}
+
+export function buildContractBreakdownCharts(
+  dailyRecords: DailyRecord[],
+  metadata: MetadataRecord[]
+): Record<string, PerpsBreakdownChartRow[]> {
+  return buildContractBreakdownChartsFromContext(buildAggregateHistoricalContext(dailyRecords, metadata));
 }

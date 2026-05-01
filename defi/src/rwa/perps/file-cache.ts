@@ -87,6 +87,12 @@ interface SyncMetadata {
     totalIds: number;
 }
 
+interface AggregateSyncMetadata {
+    lastGeneratedDate: string;
+    metadataHash: string;
+    lastDailySyncTimestamp: string | null;
+}
+
 export async function getSyncMetadata(): Promise<SyncMetadata | null> {
     const data = await readRouteData(SYNC_METADATA_FILE, { skipErrorLog: true });
     return data;
@@ -94,6 +100,17 @@ export async function getSyncMetadata(): Promise<SyncMetadata | null> {
 
 export async function setSyncMetadata(metadata: SyncMetadata): Promise<void> {
     await storeRouteData(SYNC_METADATA_FILE, metadata);
+}
+
+const AGGREGATE_SYNC_METADATA_FILE = 'aggregate-sync-metadata.json';
+
+export async function getAggregateSyncMetadata(): Promise<AggregateSyncMetadata | null> {
+    const data = await readRouteData(AGGREGATE_SYNC_METADATA_FILE, { skipErrorLog: true });
+    return data;
+}
+
+export async function setAggregateSyncMetadata(metadata: AggregateSyncMetadata): Promise<void> {
+    await storeRouteData(AGGREGATE_SYNC_METADATA_FILE, metadata);
 }
 
 // Historical data per ID
