@@ -46,7 +46,7 @@ describe("storeStablecoinVolume spike helpers", () => {
       const cache: VolumeCache = {
         [String(t1)]: { timestamp: t1, chains: { ethereum: { tokens: { USDC: 10 }, currencies: {} } } },
         [String(t2)]: { timestamp: t2, chains: { ethereum: { tokens: { USDC: 0, USDT: 5 }, currencies: {} } } },
-        [String(t3)]: { timestamp: t3, chains: { ethereum: { tokens: { USDC: Number.POSITIVE_INFINITY as any }, currencies: {} } } },
+        [String(t3)]: { timestamp: t3, chains: { ethereum: { tokens: { USDC: Number.POSITIVE_INFINITY }, currencies: {} } } },
       };
 
       expect(collectHistoricalVolumes(cache, "ethereum", "USDC", t1)).toEqual([]); // excluded, and others are invalid
@@ -130,4 +130,3 @@ describe("storeStablecoinVolume spike helpers", () => {
     });
   });
 });
-

@@ -398,7 +398,7 @@ async function queryDay(timestamp: number, history: VolumeCache): Promise<DailyV
   return daily;
 }
 
-export async function main() {
+async function main() {
   const currentTimestamp = getCurrentTimestamp();
   const yesterdayStart = getStartDayTimestamp(currentTimestamp - DAY);
   const startTs = getStartDayTimestamp(getUnixTimestamp(START_DATE));
