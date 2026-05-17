@@ -20,6 +20,9 @@ curl \
 
 curl -X GET 'https://search-core.defillama.com/tasks/0' -H "Authorization: Bearer $SEARCH_MASTER_KEY"
 
+# Pages index settings are defined in PAGES_INDEX_SETTINGS in src/updateSearch.ts.
+# updateSearch.ts calls syncPagesIndexSettings(), so these curl blocks are a
+# manual fallback/reference only and will be silently superseded by auto-sync.
 curl \
   -X PUT 'https://search-core.defillama.com/indexes/pages/settings/searchable-attributes' \
   -H "Authorization: Bearer $SEARCH_MASTER_KEY" \
@@ -30,12 +33,12 @@ curl \
     "alias3",
     "alias4",
     "alias5",
+    "routeAlias",
     "name",
     "symbol",
     "previousNames",
     "nameVariants",
-    "keywords",
-    "subName"
+    "keywords"
   ]'
 
 curl \
@@ -46,6 +49,7 @@ curl \
     "words",
     "typo",
     "proximity",
+    "topLevelRank:desc",
     "exactness",
     "r:desc",
     "attribute",
@@ -58,7 +62,9 @@ curl \
   -H "Authorization: Bearer $SEARCH_MASTER_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary '[
-    "type"
+    "type",
+    "deprecated",
+    "subName"
   ]'
 
 curl \
@@ -70,7 +76,8 @@ curl \
     "tvl",
     "name",
     "mcapRank",
-    "r"
+    "r",
+    "topLevelRank"
   ]'
 
 curl \
@@ -119,6 +126,9 @@ curl \
 
 # --- Directory index setup ---
 
+# Directory index settings are defined in DIRECTORY_INDEX_SETTINGS in
+# src/updateSearch.ts and auto-synced by updateSearch.ts. These curl blocks are
+# a manual fallback/reference only.
 curl \
   -X PUT 'https://search-core.defillama.com/indexes/directory/settings/ranking-rules' \
   -H "Authorization: Bearer $SEARCH_MASTER_KEY" \

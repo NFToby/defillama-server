@@ -679,6 +679,13 @@ describe("buildOverviewBreakdownCharts", () => {
     expect(result["overview-breakdown/assetgroup/unknown/openinterest/baseasset.json"]).toEqual([
       { timestamp: 200, Bond: 5 },
     ]);
+    expect(result["overview-breakdown/assetclass/single-stock-synthetic-perp/openinterest/venue.json"]).toEqual([
+      { timestamp: 100, xyz: 10 },
+      { timestamp: 200, xyz: 12 },
+    ]);
+    expect(result["overview-breakdown/excludeassetclass/single-stock-synthetic-perp/openinterest/assetgroup.json"]).toEqual([
+      { timestamp: 200, Commodities: 7, Unknown: 5 },
+    ]);
   });
 
   it("omits zero-only pre-launch breakdown keys and keeps post-start zeroes", () => {
@@ -748,6 +755,7 @@ describe("buildContractBreakdownCharts", () => {
             contract: "xyz:META",
             venue: "xyz",
             referenceAssetGroup: "US Equities",
+            assetClass: ["Single stock synthetic perp"],
           },
         },
         {
@@ -756,6 +764,7 @@ describe("buildContractBreakdownCharts", () => {
             contract: "flx:GOLD",
             venue: "flx",
             referenceAssetGroup: "Commodities",
+            assetClass: ["Commodity synthetic perp"],
           },
         },
       ]
@@ -771,6 +780,13 @@ describe("buildContractBreakdownCharts", () => {
     ]);
     expect(result["contract-breakdown/assetgroup/commodities/volume24h.json"]).toEqual([
       { timestamp: 200, "flx:GOLD": 2 },
+    ]);
+    expect(result["contract-breakdown/assetclass/single-stock-synthetic-perp/openinterest.json"]).toEqual([
+      { timestamp: 100, "xyz:META": 10 },
+      { timestamp: 200, "xyz:META": 12 },
+    ]);
+    expect(result["contract-breakdown/excludeassetclass/single-stock-synthetic-perp/openinterest.json"]).toEqual([
+      { timestamp: 200, "flx:GOLD": 7 },
     ]);
   });
 
@@ -875,7 +891,14 @@ describe("server route helpers", () => {
     expect(parsePerpsChartTarget({})).toEqual({ kind: "all" });
     expect(parsePerpsChartTarget({ venue: " XYZ " })).toEqual({ kind: "venue", slug: "xyz" });
     expect(parsePerpsChartTarget({ assetGroup: "US Equities" })).toEqual({ kind: "assetGroup", slug: "us-equities" });
+    expect(parsePerpsChartTarget({ assetClass: "Forex Perps" })).toEqual({ kind: "assetClass", slug: "forex-perps" });
+    expect(parsePerpsChartTarget({ excludeAssetClass: "Forex Perps" })).toEqual({
+      kind: "excludeAssetClass",
+      slug: "forex-perps",
+    });
     expect(parsePerpsChartTarget({ venue: "xyz", assetGroup: "us-equities" })).toBeNull();
+    expect(parsePerpsChartTarget({ venue: "xyz", assetClass: "forex-perps" })).toBeNull();
+    expect(parsePerpsChartTarget({ assetClass: "forex-perps", excludeAssetClass: "forex-perps" })).toBeNull();
   });
 
   it("builds cached breakdown file paths and rejects invalid combinations", () => {
@@ -901,6 +924,44 @@ describe("server route helpers", () => {
         key: "volume24h",
       })
     ).toBe("charts/contract-breakdown/assetgroup/us-equities/volume24h.json");
+
+    expect(
+      getPerpsOverviewBreakdownFilePath({
+        target: { kind: "assetClass", slug: "forex-perps" },
+        key: "openInterest",
+        breakdown: "assetGroup",
+      })
+    ).toBe("charts/overview-breakdown/assetclass/forex-perps/openinterest/assetgroup.json");
+
+    expect(
+      getPerpsOverviewBreakdownFilePath({
+        target: { kind: "assetClass", slug: "forex-perps" },
+        key: "openInterest",
+        breakdown: "assetClass",
+      })
+    ).toBe("charts/overview-breakdown/assetclass/forex-perps/openinterest/assetclass.json");
+
+    expect(
+      getPerpsContractBreakdownFilePath({
+        target: { kind: "assetClass", slug: "forex-perps" },
+        key: "markets",
+      })
+    ).toBe("charts/contract-breakdown/assetclass/forex-perps/markets.json");
+
+    expect(
+      getPerpsOverviewBreakdownFilePath({
+        target: { kind: "excludeAssetClass", slug: "forex-perps" },
+        key: "openInterest",
+        breakdown: "assetGroup",
+      })
+    ).toBe("charts/overview-breakdown/excludeassetclass/forex-perps/openinterest/assetgroup.json");
+
+    expect(
+      getPerpsContractBreakdownFilePath({
+        target: { kind: "excludeAssetClass", slug: "forex-perps" },
+        key: "markets",
+      })
+    ).toBe("charts/contract-breakdown/excludeassetclass/forex-perps/markets.json");
 
     expect(
       getPerpsContractBreakdownFilePath({

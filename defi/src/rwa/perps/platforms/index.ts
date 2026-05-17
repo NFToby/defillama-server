@@ -7,6 +7,9 @@ import { ostiumAdapter } from "./adapters/ostium";
 import { avantisAdapter } from "./adapters/avantis";
 import { helixAdapter } from "./adapters/helix";
 import { extendedAdapter } from "./adapters/extended";
+import { lighterAdapter } from "./adapters/lighter";
+import { edgexAdapter } from "./adapters/edgex";
+import { asterAdapter } from "./adapters/aster";
 
 /** All implemented adapters — used by preview tooling and tests. */
 const ALL_ADAPTERS: PlatformAdapter[] = [
@@ -16,6 +19,9 @@ const ALL_ADAPTERS: PlatformAdapter[] = [
   avantisAdapter,
   helixAdapter,
   extendedAdapter,
+  lighterAdapter,
+  edgexAdapter,
+  asterAdapter,
 ];
 
 /** Adapters that are live in the pipeline / cron / API. */
@@ -25,6 +31,9 @@ const PUBLISHED_ADAPTERS: PlatformAdapter[] = [
   gtradeAdapter,
   helixAdapter,
   extendedAdapter,
+  lighterAdapter,
+  edgexAdapter,
+  asterAdapter,
 ];
 
 const ADAPTER_MAP = new Map<string, PlatformAdapter>(

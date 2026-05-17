@@ -63,6 +63,10 @@ async function main() {
 
     const isFromDefiLlama = origin === 'https://defillama.com'
 
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', '*');
+
     if (req.headers.authorization && !isFromDefiLlama) {
       res.status(403).send();
     } else {

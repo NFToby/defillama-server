@@ -45,7 +45,9 @@ const OVERVIEW_BREAKDOWNS_BY_TARGET = {
   all: ["venue", "assetGroup", "assetClass", "baseAsset"],
   venue: ["assetGroup", "assetClass", "baseAsset"],
   assetGroup: ["venue", "assetClass", "baseAsset"],
-} satisfies Record<"all" | "venue" | "assetGroup", PerpsOverviewBreakdown[]>;
+  assetClass: ["venue", "assetGroup", "assetClass", "baseAsset"],
+  excludeAssetClass: ["venue", "assetGroup", "assetClass", "baseAsset"],
+} satisfies Record<"all" | "venue" | "assetGroup" | "assetClass" | "excludeAssetClass", PerpsOverviewBreakdown[]>;
 
 function getMetadataMap(metadata: MetadataRecord[]) {
   const metadataMap = new Map<string, MetadataPayload>();
@@ -260,6 +262,7 @@ export function buildOverviewBreakdownCharts(
   const charts: Record<string, PerpsBreakdownChartRow[]> = {};
   const rowsByVenue = buildGroupMap(rows, (row) => perpsSlug(row.venue));
   const rowsByAssetGroup = buildGroupMap(rows, (row) => perpsSlug(getAssetGroupLabel(row)));
+  const rowsByAssetClass = buildGroupMap(rows, (row) => perpsSlug(getAssetClassLabel(row)));
 
   for (const metric of BREAKDOWN_METRIC_KEYS) {
     for (const breakdown of OVERVIEW_BREAKDOWNS_BY_TARGET.all) {
@@ -288,6 +291,26 @@ export function buildOverviewBreakdownCharts(
     }
   }
 
+  for (const assetClassSlug in rowsByAssetClass) {
+    const assetClassRows = rowsByAssetClass[assetClassSlug];
+    for (const metric of BREAKDOWN_METRIC_KEYS) {
+      for (const breakdown of OVERVIEW_BREAKDOWNS_BY_TARGET.assetClass) {
+        charts[`overview-breakdown/assetclass/${assetClassSlug}/${metric.toLowerCase()}/${breakdown.toLowerCase()}.json`] =
+          buildBreakdownChartRows(assetClassRows, metric, (row) => toOverviewSeriesLabel(row, breakdown));
+      }
+    }
+  }
+
+  for (const assetClassSlug in rowsByAssetClass) {
+    const filteredRows = rows.filter((row) => perpsSlug(getAssetClassLabel(row)) !== assetClassSlug);
+    for (const metric of BREAKDOWN_METRIC_KEYS) {
+      for (const breakdown of OVERVIEW_BREAKDOWNS_BY_TARGET.excludeAssetClass) {
+        charts[`overview-breakdown/excludeassetclass/${assetClassSlug}/${metric.toLowerCase()}/${breakdown.toLowerCase()}.json`] =
+          buildBreakdownChartRows(filteredRows, metric, (row) => toOverviewSeriesLabel(row, breakdown));
+      }
+    }
+  }
+
   return charts;
 }
 
@@ -299,6 +322,7 @@ export function buildContractBreakdownCharts(
   const charts: Record<string, PerpsBreakdownChartRow[]> = {};
   const rowsByVenue = buildGroupMap(rows, (row) => perpsSlug(row.venue));
   const rowsByAssetGroup = buildGroupMap(rows, (row) => perpsSlug(getAssetGroupLabel(row)));
+  const rowsByAssetClass = buildGroupMap(rows, (row) => perpsSlug(getAssetClassLabel(row)));
 
   for (const metric of BREAKDOWN_METRIC_KEYS) {
     charts[`contract-breakdown/all/${metric.toLowerCase()}.json`] = buildBreakdownChartRows(
@@ -327,6 +351,25 @@ export function buildContractBreakdownCharts(
         metric,
         getContractLabel
       );
+    }
+  }
+
+  for (const assetClassSlug in rowsByAssetClass) {
+    const assetClassRows = rowsByAssetClass[assetClassSlug];
+    for (const metric of BREAKDOWN_METRIC_KEYS) {
+      charts[`contract-breakdown/assetclass/${assetClassSlug}/${metric.toLowerCase()}.json`] = buildBreakdownChartRows(
+        assetClassRows,
+        metric,
+        getContractLabel
+      );
+    }
+  }
+
+  for (const assetClassSlug in rowsByAssetClass) {
+    const filteredRows = rows.filter((row) => perpsSlug(getAssetClassLabel(row)) !== assetClassSlug);
+    for (const metric of BREAKDOWN_METRIC_KEYS) {
+      charts[`contract-breakdown/excludeassetclass/${assetClassSlug}/${metric.toLowerCase()}.json`] =
+        buildBreakdownChartRows(filteredRows, metric, getContractLabel);
     }
   }
 

@@ -10,6 +10,10 @@
 
 import { getAllAdaptersIncludingUnpublished } from "../platforms";
 import type { ParsedPerpsMarket } from "../platforms/types";
+// Import the SAME OI-normalization the prod pipeline uses (perps.ts) so the
+// preview can never drift from production. Per project memory, visualisers
+// must mirror prod exactly — never re-implement transforms here.
+import { normalizeOpenInterestUsd } from "../platforms/types";
 import fs from "fs";
 import path from "path";
 
@@ -18,6 +22,7 @@ interface AdapterResult {
   markets: ParsedPerpsMarket[];
   error: string | null;
   durationMs: number;
+  oiIsNotional: boolean;
 }
 
 async function main() {
@@ -34,11 +39,11 @@ async function main() {
         const markets = await adapter.fetchMarkets();
         const dur = Date.now() - start;
         console.log(`  ✅ ${adapter.name}: ${markets.length} markets (${dur}ms)`);
-        results.push({ name: adapter.name, markets, error: null, durationMs: dur });
+        results.push({ name: adapter.name, markets, error: null, durationMs: dur, oiIsNotional: adapter.oiIsNotional });
       } catch (e: any) {
         const dur = Date.now() - start;
         console.log(`  ❌ ${adapter.name}: ${e.message} (${dur}ms)`);
-        results.push({ name: adapter.name, markets: [], error: e.message, durationMs: dur });
+        results.push({ name: adapter.name, markets: [], error: e.message, durationMs: dur, oiIsNotional: adapter.oiIsNotional });
       }
     })
   );
@@ -90,9 +95,22 @@ function fmtPct(n: number): string {
   return sign + n.toFixed(4) + "%";
 }
 
+// NOTE: ParsedPerpsMarket stores `fundingRate` and `premium` as DECIMALS
+// (e.g. 0.0032 means 0.32%/period), and `priceChange24h` as a PERCENTAGE
+// (e.g. 1.84 means +1.84%). The prod frontend does `fundingRate * 100` at
+// render time (see defillama-app `Dashboard.tsx`); the preview must match.
+// → multiply funding/premium by 100 before passing to fmtPct;
+//   priceChange24h is already a %.
+
 function generateHTML(results: AdapterResult[]): string {
-  const allMarkets = results.flatMap((r) => r.markets);
-  const totalOI = allMarkets.reduce((s, m) => s + m.openInterest, 0);
+  // Look up oiIsNotional per adapter so OI rendering can be normalized to USD.
+  const oiNotionalByAdapter = new Map<string, boolean>();
+  for (const r of results) oiNotionalByAdapter.set(r.name, r.oiIsNotional);
+
+  const allMarkets = results.flatMap((r) =>
+    r.markets.map((m) => ({ ...m, oiUsd: normalizeOpenInterestUsd(m, { oiIsNotional: r.oiIsNotional }) }))
+  );
+  const totalOI = allMarkets.reduce((s, m) => s + m.oiUsd, 0);
   const totalVol = allMarkets.reduce((s, m) => s + m.volume24h, 0);
   const ts = new Date().toISOString();
 
@@ -220,7 +238,7 @@ function generateHTML(results: AdapterResult[]): string {
 <h2>Platforms</h2>
 <div class="platform-cards">
 ${results.map((r) => {
-  const oi = r.markets.reduce((s, m) => s + m.openInterest, 0);
+  const oi = r.markets.reduce((s, m) => s + normalizeOpenInterestUsd(m, { oiIsNotional: r.oiIsNotional }), 0);
   const vol = r.markets.reduce((s, m) => s + m.volume24h, 0);
   const withPrice = r.markets.filter((m) => m.markPx > 0).length;
   const status = r.error ? "error" : r.markets.length === 0 ? "" : "";
@@ -290,22 +308,22 @@ ${issues.length === 0
 <tbody id="tbody">
 ${allMarkets.map((m) => {
   const pxClass = m.markPx === 0 ? "warn" : "";
-  const oiClass = m.openInterest === 0 ? "zero" : "";
+  const oiClass = m.oiUsd === 0 ? "zero" : "";
   const volClass = m.volume24h === 0 ? "zero" : "";
   const chgClass = m.priceChange24h > 0 ? "pos" : m.priceChange24h < 0 ? "neg" : "";
   return `<tr data-platform="${esc(m.platform)}" data-contract="${esc(m.contract)}" data-venue="${esc(m.venue)}"
-    data-px="${m.markPx}" data-oi="${m.openInterest}" data-vol="${m.volume24h}">
+    data-px="${m.markPx}" data-oi="${m.oiUsd}" data-vol="${m.volume24h}">
   <td>${esc(m.platform)}</td>
   <td>${esc(m.venue)}</td>
   <td>${esc(m.contract)}</td>
   <td class="num ${pxClass}">${m.markPx === 0 ? '<span class="warn">$0</span>' : "$" + fmtNum(m.markPx, 4)}</td>
   <td class="num ${chgClass}">${fmtPct(m.priceChange24h)}</td>
-  <td class="num ${oiClass}">${fmtUSD(m.openInterest)}</td>
+  <td class="num ${oiClass}">${fmtUSD(m.oiUsd)}</td>
   <td class="num ${volClass}">${fmtUSD(m.volume24h)}</td>
-  <td class="num">${fmtPct(m.fundingRate)}</td>
-  <td class="num">${m.maxLeverage || "—"}</td>
+  <td class="num">${fmtPct(m.fundingRate * 100)}</td>
+  <td class="num">${m.maxLeverage ? Math.round(m.maxLeverage) + "×" : "—"}</td>
   <td class="num">${m.oraclePx ? "$" + fmtNum(m.oraclePx, 4) : "—"}</td>
-  <td class="num">${m.premium ? fmtPct(m.premium) : "—"}</td>
+  <td class="num">${m.premium ? fmtPct(m.premium * 100) : "—"}</td>
 </tr>`;
 }).join("\n")}
 </tbody>

@@ -619,7 +619,6 @@ const data: Protocol[] = [
     treasury: "tokenIon.js",
     twitter: "tokenlon",
     audit_links: ["https://cure53.de/pentest-report_imtoken.pdf"],
-    github: ["consenlabs"], //check
     deprecated: true,
     deadUrl: true,
   },
@@ -1869,20 +1868,21 @@ const data: Protocol[] = [
   },
   {
     id: "190",
-    name: "dHEDGE Vaults",
+    name: "Chamber Vaults",
+    previousNames: ["dHEDGE Vaults"],
     address: "0xca1207647ff814039530d7d35df0e1dd2e91fa84",
     symbol: "DHT",
-    url: "https://www.dhedge.org/",
-    description: "Explore the universe of top-tier tokenized vaults.",
+    url: "https://chamberfi.com/",
+    description: "Chamber, formerly dHEDGE, is a non-custodial vault protocol for creating and managing onchain vaults. The protocol uses smart contracts to manage how vaults interact with supported assets, integrations, and DeFi protocols. Chamber also powers products and strategies across its wider ecosystem, including Toros Finance and mStable.",
     chain: "Ethereum",
-    logo: `${baseIconsUrl}/dhedge-vaults.png`,
+    logo: `${baseIconsUrl}/chamber-vaults.jpg`,
     audits: "2",
     gecko_id: null,
     cmcId: null,
     category: "Indexes",
     chains: ["Ethereum", "Polygon", "Optimism", "Arbitrum"],
     module: "dhedge.js",
-    twitter: "dHedgeOrg",
+    twitter: "chamberfi",
     audit_links: ["https://docs.dhedge.org/security/audits-timeline"],
     parentProtocol: "parent#dhedge",
     dimensions: {
@@ -3346,6 +3346,7 @@ const data: Protocol[] = [
     audit_links: ["https://wasabix-finance.gitbook.io/wasabix_finance/code/certik-audit-report"],
     forkedFromIds: ["204"],
     github: ["wasabi-swap-team"],
+    deadUrl: true,
   },
   {
     id: "259",
@@ -5562,6 +5563,7 @@ const data: Protocol[] = [
     audit_links: ["https://doc.parrot.fi/security/"],
     openSource: false,
     stablecoins: ["parrot-usd"],
+    deadUrl: true,
   },
   {
     id: "359",
@@ -5700,6 +5702,10 @@ const data: Protocol[] = [
     twitter: "volmexfinance",
     audit_links: ["https://docs.volmex.finance/smart-contracts/audits"],
     github: ["volmexfinance"],
+    dimensions: {
+      fees: "volmex",
+      dexs: "volmex"
+    },
   },
   {
     id: "365",
@@ -6224,7 +6230,7 @@ const data: Protocol[] = [
     description:
       "bEarn Fi is a cross-chain product in Decentralized Finance (DeFi) that at its core provides yield generation, algorithmic stablecoin, bridge, gaming aggregation, treasury, AMM DEX, and governance on multi-chain: Binance Smart Chain blockchain (BSC) and Ethereum blockchain.",
     chain: "Binance",
-    logo: `${baseIconsUrl}/bearn.jpg`,
+    logo: `${baseIconsUrl}/bearnfi.jpg`,
     audits: "3",
     gecko_id: "bearn-fi",
     cmcId: "8796",
@@ -8692,6 +8698,7 @@ The eWIT token is a custodial, wrapped version of the Witnet coin managed by the
     parentProtocol: "parent#orion-protocol",
     audit_links: ["https://www.certik.org/projects/orionprotocol"],
     forkedFromIds: ["2197"],
+    deadUrl: true,
   },
   {
     id: "497",
@@ -10868,6 +10875,7 @@ The eWIT token is a custodial, wrapped version of the Witnet coin managed by the
     twitter: "ConvergenceFin",
     audit_links: ["https://www.certik.org/projects/convergencefinance"],
     forkedFromIds: ["2197"],
+    deadUrl: true,
   },
   {
     id: "596",
@@ -12172,6 +12180,7 @@ The eWIT token is a custodial, wrapped version of the Witnet coin managed by the
     module: "atrix.js",
     twitter: "AtrixProtocol",
     openSource: false,
+    deadUrl: true,
   },
   {
     id: "654",
@@ -16523,7 +16532,7 @@ The eWIT token is a custodial, wrapped version of the Witnet coin managed by the
     category: "Yield",
     chains: ["Ethereum"],
     module: "saffron/index.js",
-    twitter: "saffronfinance_",
+    twitter: "saffron",
     audit_links: ["https://github.com/saffron-finance/saffron/tree/master/audits/saffron-staking-v2"],
     listedAt: 1637370827,
     github: ["saffron-finance"],
@@ -17064,7 +17073,7 @@ The eWIT token is a custodial, wrapped version of the Witnet coin managed by the
     previousNames: ["Paraswap"],
     address: "0x4e107a0000db66f0e9fd2039288bf811dd1f9c74",
     symbol: "VLR",
-    url: "https://www.velora.xyz",
+    url: "https://app.velora.xyz/", // https://x.com/VeloraDEX/status/2052715943621439728 problems with old url. changed once its fixed - was https://www.velora.xyz
     description:
       "Velora is the most comprehensive and flexible trading protocol for Decentralized Finance (DeFi). We use decentralized intents to provide advanced features such as limit orders, super hooks, and chain-abstracted swaps.",
     chain: "Ethereum",
@@ -25518,6 +25527,7 @@ The eWIT token is a custodial, wrapped version of the Witnet coin managed by the
     twitter: "thealphadex",
     forkedFromIds: ["2197"],
     listedAt: 1642569490,
+    deadUrl: true,
   },
   {
     id: "1286",

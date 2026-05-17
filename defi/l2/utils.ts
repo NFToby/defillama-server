@@ -472,16 +472,22 @@ export async function fetchBridgeTokenList(chain: Chain): Promise<Address[]> {
       chain in excluded ? tokens.filter((t: string) => !excluded[chain].includes(t)) : tokens;
     if (!bridgedTvlMixedCaseChains.includes(chain)) filteredTokens = filteredTokens.map((t: string) => t.toLowerCase());
 
-    if (!(chain in additional)) return filteredTokens;
+    if (!(chain in additional)) return dropInvalidAddresses(filteredTokens);
 
     const additionalTokens = bridgedTvlMixedCaseChains.includes(chain)
       ? additional[chain]
       : additional[chain].map((t: string) => t.toLowerCase());
 
-    return [...new Set([...filteredTokens, ...additionalTokens])];
+    return dropInvalidAddresses([...new Set([...filteredTokens, ...additionalTokens])]);
   } catch (e) {
     throw new Error(`${chain} bridge adapter failed with ${e}`);
   }
+}
+
+function dropInvalidAddresses(tokens: Address[]): Address[] {
+  return tokens.filter(
+    (t: unknown): t is string => typeof t === "string" && t.length > 0 && t !== "null" && t !== "undefined"
+  );
 }
 
 const letterToSeconds: { [symbol: string]: number } = {

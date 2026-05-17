@@ -16,17 +16,20 @@ import { excludedTvlKeys } from "../../l2/constants";
 import BigNumber from "bignumber.js";
 import { coins, } from "@defillama/sdk";
 import { getCsvData } from "./spreadsheet";
-import { runInPromisePool } from "@defillama/sdk/build/generalUtil";
+
+import * as sdk from '@defillama/sdk'
+const { runInPromisePool } = sdk.util;
+const { cachedFetch } = sdk.cache;
 import { fetchSupplies } from "../../l2/utils";
 import { getChainDisplayName, getChainIdFromDisplayName } from "../utils/normalizeChain";
-import { cachedFetch } from "@defillama/sdk/build/util/cache";
-import { getCurrentUnixTimestamp, getTimestampAtStartOfDay } from "../utils/date";
+
+import { getCurrentUnixTimestamp, getTimestampAtStartOfDay, getTimestampAtStartOfDayUTC } from "../utils/date";
 import { storeHistorical, storeMetadata } from "./historical";
 import { initPG, fetchLatestAggregateTotals } from "./db";
 import { fetchEvm, fetchSolana, fetchProvenance, fetchStellar, type WalletEntry } from './balances';
 import { excludedProtocolCategories, protocolIdMap, categoryMap, unsupportedChains, ONCHAIN_MCAP_EQUALS_ACTIVE_PLATFORMS } from "./constants";
 import { RWA_KEY_MAP } from "./metadataConstants";
-import { createAirtableHeaderToCanonicalKeyMapper, fetchBurnAddresses, formatNumAsNumber, normalizeRwaMetadataForApiInPlace, sortTokensByChain, toFiniteNumberOrNull, toFixedNumber } from "./utils";
+import { createAirtableHeaderToCanonicalKeyMapper, fetchBurnAddresses, normalizeRwaMetadataForApiInPlace, sortTokensByChain, toFiniteNumberOrNull, toFixedNumber } from "./utils";
 import { sendMessage } from "../utils/discord";
 
 // ── Internal helpers (copied from atvl.ts — identical logic) ────────
@@ -157,6 +160,63 @@ async function getExcludedBalances(
   return excludedAmounts;
 }
 
+// FX rates: pre-built day-aligned map for O(1) lookup. Missing days are
+// forward-filled with the most recent prior rate so any timestamp inside the
+// FX range resolves without a search.
+type FxRateMap = {
+  byDay: Map<number, Record<string, number>>;
+  latest: Record<string, number>;
+  firstDay: number;
+  lastDay: number;
+};
+const SECONDS_IN_DAY = 86400;
+let _fxRateMapPromise: Promise<FxRateMap> | null = null;
+function getFxRateMap(): Promise<FxRateMap> {
+  if (!_fxRateMapPromise) {
+    _fxRateMapPromise = cachedFetch({
+      key: "stablecoin-fx-rates-full",
+      endpoint: "https://llama-stablecoins-data.s3.eu-central-1.amazonaws.com/rates/full",
+    }).then((data: any) => {
+      if (!Array.isArray(data) || !data.length) throw new Error("FX rates response unavailable");
+      const sorted = data.slice().sort((a: any, b: any) => a.date - b.date);
+      const sourceByDay = new Map<number, Record<string, number>>();
+      for (const entry of sorted) {
+        sourceByDay.set(getTimestampAtStartOfDayUTC(entry.date), entry.rates);
+      }
+      const firstDay = getTimestampAtStartOfDayUTC(sorted[0].date);
+      const lastDay = getTimestampAtStartOfDayUTC(sorted[sorted.length - 1].date);
+      const byDay = new Map<number, Record<string, number>>();
+      let prev: Record<string, number> | null = null;
+      for (let day = firstDay; day <= lastDay; day += SECONDS_IN_DAY) {
+        const here = sourceByDay.get(day);
+        if (here) prev = here;
+        if (prev) byDay.set(day, prev);
+      }
+      return { byDay, latest: sorted[sorted.length - 1].rates, firstDay, lastDay };
+    }).catch((e) => { _fxRateMapPromise = null; throw e; });
+  }
+  return _fxRateMapPromise;
+}
+
+function pegTypeToCurrency(pegType: string): string | null {
+  if (typeof pegType !== "string" || !pegType.startsWith("pegged")) return null;
+  return pegType.slice("pegged".length) || null;
+}
+
+// Latest rate when timestamp == 0; otherwise rate at-or-before the timestamp.
+function lookupFxRate(fx: FxRateMap, currency: string, timestamp: number): number | null {
+  let rates: Record<string, number> | undefined;
+  if (timestamp === 0) {
+    rates = fx.latest;
+  } else {
+    const day = getTimestampAtStartOfDayUTC(timestamp);
+    if (day < fx.firstDay) return null;
+    rates = fx.byDay.get(day <= fx.lastDay ? day : fx.lastDay);
+  }
+  const r = rates?.[currency];
+  return typeof r === "number" && r > 0 ? r : null;
+}
+
 async function fetchStablecoins(timestamp: number, relevantGeckoIds?: Set<string>): Promise<{ [gecko_id: string]: { [chain: string]: number } }> {
   const validStablecoinIds: string[] = [];
   const { peggedAssets } = await cachedFetch({
@@ -164,6 +224,9 @@ async function fetchStablecoins(timestamp: number, relevantGeckoIds?: Set<string
     endpoint: "https://stablecoins.llama.fi/stablecoins",
   });
 
+  // /stablecoins multiplies raw circulating by the asset's USD price server-side
+  // (peggedassets-server api2/cron-task/getStableCoins.ts), so chainCirculating
+  // values are already USD-equivalent regardless of pegType. No FX conversion here.
   const data: { [gecko_id: string]: { [chain: string]: number } } = {};
   const seenStablecoinIds = new Set<string>();
   const idToGeckoId: { [id: string]: string } = {};
@@ -204,6 +267,20 @@ async function fetchHistoricalStablecoins(
   const data: { [gecko_id: string]: { [chain: string]: number } } = {};
   if (!process.env.INTERNAL_API_KEY) throw new Error("INTERNAL_API_KEY is not set");
 
+  // /stablecoin/{id} chainBalances are denominated in the asset's peg currency
+  // (e.g. peggedRUB rows store RUB, not USD — unlike /stablecoins which has
+  // already been multiplied by USD price). Divide by the FX rate at the
+  // requested timestamp so downstream RWA mcap is dollar-denominated.
+  // If the global rates payload is unavailable (e.g. S3 hiccup), fall through
+  // with a null map — non-USD pegs hit the per-asset skip below, USD pegs
+  // are unaffected — rather than failing the whole ATVL run.
+  let fxRateMap: FxRateMap | null = null;
+  try {
+    fxRateMap = await getFxRateMap();
+  } catch (e) {
+    console.error("[atvl] FX rates unavailable, skipping non-USD peg overrides", e);
+  }
+
   await runInPromisePool({
     items: validStablecoinIds,
     concurrency: 5,
@@ -216,6 +293,18 @@ async function fetchHistoricalStablecoins(
 
       const { chainBalances, gecko_id, pegType } = apiData;
 
+      let fxDivisor = 1;
+      if (pegType && pegType !== "peggedUSD") {
+        const currency = pegTypeToCurrency(pegType);
+        const rate = currency && fxRateMap ? lookupFxRate(fxRateMap, currency, timestamp) : null;
+        if (!rate) {
+          // No FX rate for this peg/timestamp — skip the override entirely so
+          // the on-chain path (supply × USD price) computes mcap downstream.
+          return;
+        }
+        fxDivisor = rate;
+      }
+
       data[gecko_id] = {};
       Object.keys(chainBalances).forEach((chain: string) => {
         const timeseries = chainBalances[chain].tokens;
@@ -225,7 +314,7 @@ async function fetchHistoricalStablecoins(
         if (!circulating) return;
         const mcap = circulating[pegType];
         if (!mcap) return;
-        data[gecko_id][chain] = toFixedNumber(mcap, 0);
+        data[gecko_id][chain] = toFixedNumber(mcap / fxDivisor, 0);
       });
     },
   });
@@ -310,7 +399,7 @@ function getOnChainTvlAndActiveMcaps(
     if (cgId && stablecoinsData[cgId]) {
       finalData[rwaId][RWA_KEY_MAP.onChain] = stablecoinsData[cgId];
       if (!finalData[rwaId][RWA_KEY_MAP.price] && assetPrices[pk]?.price) {
-        finalData[rwaId][RWA_KEY_MAP.price] = formatNumAsNumber(assetPrices[pk].price);
+        finalData[rwaId][RWA_KEY_MAP.price] = toFiniteNumberOrNull(assetPrices[pk].price);
       }
       if (finalData[rwaId][RWA_KEY_MAP.activeMcapChecked]) {
         if (!finalData[rwaId][RWA_KEY_MAP.activeMcap]) finalData[rwaId][RWA_KEY_MAP.activeMcap] = { ...finalData[rwaId][RWA_KEY_MAP.onChain] };
@@ -320,14 +409,16 @@ function getOnChainTvlAndActiveMcaps(
     }
 
     const { price, decimals } = assetPrices[pk];
+    // Write price independently of supply: a missing supply (e.g. RPC failure for an
+    // Aptos FA) shouldn't blank out a price we already have from coins.
+    if (price && !finalData[rwaId][RWA_KEY_MAP.price]) {
+      finalData[rwaId][RWA_KEY_MAP.price] = toFiniteNumberOrNull(price);
+    }
+
     const supply = totalSupplies[pk];
     if (!supply || !price) {
       if (process.env.DEBUG_ENABLED) console.error(`No supply or price for ${pk}`);
       return;
-    }
-
-    if (!finalData[rwaId][RWA_KEY_MAP.price]) {
-      finalData[rwaId][RWA_KEY_MAP.price] = formatNumAsNumber(price);
     }
 
     try {
@@ -372,7 +463,7 @@ function findActiveMcaps(
   chain: string
 ) {
   if (!finalData[rwaId][RWA_KEY_MAP.price]) {
-    finalData[rwaId][RWA_KEY_MAP.price] = formatNumAsNumber(assetPrices.price);
+    finalData[rwaId][RWA_KEY_MAP.price] = toFiniteNumberOrNull(assetPrices.price);
   }
   if (!finalData[rwaId][RWA_KEY_MAP.activeMcap][chain]) return;
   if (!(rwaId in excludedAmounts)) return;

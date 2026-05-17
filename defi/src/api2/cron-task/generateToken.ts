@@ -146,6 +146,58 @@ const createTokenRecord = (item: any, routeSource: string, extras: any = {}) => 
   ...extras,
 });
 
+const rankOf = (record: any) => {
+  const rank = record?.mcap_rank;
+  return typeof rank === "number" && Number.isFinite(rank) ? rank : Number.POSITIVE_INFINITY;
+};
+
+const recomputeRouteForKey = (record: any, key: string) => ({
+  ...record,
+  route: `/token/${encodeURIComponent(key === slug(record?.symbol) ? record.symbol : record.name)}`,
+});
+
+export const reassignSymbolKeysByRank = (bySlug: Record<string, any>) => {
+  const groupsBySymbolSlug = new Map<string, Array<[string, any]>>();
+  for (const [key, item] of Object.entries(bySlug)) {
+    const symbolSlug = slug(item?.symbol);
+    if (!symbolSlug) continue;
+    const group = groupsBySymbolSlug.get(symbolSlug);
+    if (group) group.push([key, item]);
+    else groupsBySymbolSlug.set(symbolSlug, [[key, item]]);
+  }
+
+  let reassignedCount = 0;
+  for (const [symbolSlug, group] of groupsBySymbolSlug) {
+    if (group.length < 2) continue;
+
+    let bestEntry = group[0];
+    for (const entry of group) {
+      if (rankOf(entry[1]) < rankOf(bestEntry[1])) bestEntry = entry;
+    }
+
+    const [bestKey, bestItem] = bestEntry;
+    if (bestKey === symbolSlug) continue;
+
+    const currentHolderEntry = group.find(([key]) => key === symbolSlug);
+
+    delete bySlug[bestKey];
+
+    if (currentHolderEntry) {
+      const [, currentHolderItem] = currentHolderEntry;
+      delete bySlug[symbolSlug];
+      const usedKeys = new Set(Object.keys(bySlug));
+      usedKeys.add(symbolSlug);
+      const fallbackKey = getUniqueKey(currentHolderItem, 0, usedKeys);
+      bySlug[fallbackKey] = recomputeRouteForKey(currentHolderItem, fallbackKey);
+    }
+
+    bySlug[symbolSlug] = recomputeRouteForKey(bestItem, symbolSlug);
+    reassignedCount++;
+  }
+
+  return reassignedCount;
+};
+
 async function generateToken() {
   const [coins, protocolsMetadata, chainsMetadata, tokenRightsData] = await Promise.all([
     fetchJson(SOURCE_URL),
@@ -233,6 +285,11 @@ async function generateToken() {
         delete bySlug[key];
       }
     }
+  }
+
+  const reassignedSymbolKeys = reassignSymbolKeysByRank(bySlug);
+  if (reassignedSymbolKeys > 0) {
+    console.log(`Reassigned ${reassignedSymbolKeys} symbol keys to higher-mcap-ranked tokens`);
   }
 
   await storeRouteData(OUTPUT_ROUTE, bySlug);

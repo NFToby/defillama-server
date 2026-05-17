@@ -1,5 +1,5 @@
 import * as HyperExpress from 'hyper-express';
-import { readRouteData, getCacheVersion, readPGCacheForId } from './file-cache';
+import { readRouteData, getCacheVersion, readPGCacheForId, PGCacheRecord } from './file-cache';
 import { rwaSlug } from './utils';
 
 const webserver = new HyperExpress.Server();
@@ -189,15 +189,23 @@ function setRoutes(router: HyperExpress.Router): void {
                 return errorResponse(res, `Asset "${id}" not found`, 404);
             }
             // Convert pg-cache map to sorted array
-            const data = Object.entries(pgCache)
-                .map(([timestamp, record]) => ({ timestamp: Number(timestamp), ...record }))
-                .sort((a, b) => a.timestamp - b.timestamp);
+            const data: Array<{ timestamp: number; onChainMcap: number | null; activeMcap: number | null; defiActiveTvl: number | null; chains: PGCacheRecord['chains'] }> =
+                Object.entries(pgCache)
+                    .map(([timestamp, record]) => ({ timestamp: Number(timestamp), ...record }))
+                    .sort((a, b) => a.timestamp - b.timestamp);
             while (data.length > 0) {
                 const first = data[0];
                 if (first.onChainMcap === 0 && first.defiActiveTvl === 0 && (!first.activeMcap || first.activeMcap === 0)) {
                     data.shift();
                 } else {
                     break;
+                }
+            }
+            // Null out per-series leading zeros so charts don't render a flat-zero
+            // pre-data line for series that started later than others.
+            for (const key of ['onChainMcap', 'activeMcap', 'defiActiveTvl'] as const) {
+                for (let i = 0; i < data.length && data[i][key] === 0; i++) {
+                    data[i][key] = null;
                 }
             }
             return successResponse(res, data, 30);

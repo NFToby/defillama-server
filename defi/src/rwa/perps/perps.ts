@@ -1,9 +1,12 @@
 import { getCurrentUnixTimestamp, getTimestampAtStartOfDay } from "../../utils/date";
-import { runInPromisePool } from "@defillama/sdk/build/generalUtil";
+
+import * as sdk from '@defillama/sdk'
+const { runInPromisePool } = sdk.util;
 import { initPG, fetchLatestAggregateTotals, fetchCumulativeFundingPG, fetchLatestFundingTimestampPG, fetchRollingVolumesPG } from "./db";
 import { sendMessage } from "../../utils/discord";
 import { getAllAdapters, getAdapter } from "./platforms";
 import type { ParsedPerpsMarket, FundingEntry } from "./platforms";
+import { normalizeOpenInterestUsd } from "./platforms/types";
 import {
   getContractId,
   getContractMetadata,
@@ -70,8 +73,32 @@ export async function main(ts: number = 0): Promise<void> {
 
   if (knownMarkets.length === 0) return;
 
+  // Drop markets where Pyth + Ostium fallback both missed — storing $0 prices breaks OI math.
+  const pricedMarkets: ParsedPerpsMarket[] = [];
+  const unpricedMarkets: string[] = [];
+  for (const market of knownMarkets) {
+    if (market.markPx > 0) {
+      pricedMarkets.push(market);
+    } else {
+      unpricedMarkets.push(market.contract);
+    }
+  }
+
+  if (unpricedMarkets.length > 0) {
+    const msg = `RWA Perps ${unpricedMarkets.length} market(s) skipped — zero price after fallback:\n${unpricedMarkets.slice(0, 20).join(", ")}`;
+    console.warn(msg);
+    if (process.env.RWA_WEBHOOK) {
+      await sendMessage(msg, process.env.RWA_WEBHOOK, false);
+    }
+  }
+
   const fundingEntries: FundingEntry[] = [];
 
+  // Fetch funding history for ALL knownMarkets, not just pricedMarkets.
+  // Rationale: funding rate and base-unit OI don't depend on markPx, and some
+  // adapters (notably edgex) only expose the single most-recent settled rate
+  // per call — skipping a cycle for a transient $0 price permanently loses
+  // that settlement with no way to backfill.
   await runInPromisePool({
     items: knownMarkets,
     concurrency: 5,
@@ -96,6 +123,10 @@ export async function main(ts: number = 0): Promise<void> {
     },
   });
 
+  // After funding is captured, drop unpriced markets so finalData / OI math
+  // never sees a $0 price (which would zero out openInterest USD notional).
+  if (pricedMarkets.length === 0) return;
+
   if (fundingEntries.length > 0) await storeFundingHistory(fundingEntries);
 
   // Fetch rolling 7d/30d volumes from daily history (single query for all IDs)
@@ -106,7 +137,7 @@ export async function main(ts: number = 0): Promise<void> {
 
   const finalData: { [id: string]: PerpsDataEntry } = {};
   await runInPromisePool({
-    items: knownMarkets,
+    items: pricedMarkets,
     concurrency: 10,
     processor: async (market: ParsedPerpsMarket) => {
       const marketId = getContractId(market.contract);
@@ -128,11 +159,10 @@ export async function main(ts: number = 0): Promise<void> {
       const fees30d = computeProtocolFees(volume30d, takerFee, deployerShare);
       const feesAllTime = computeProtocolFees(volumeAllTime, takerFee, deployerShare);
 
-      // OI normalization: Hyperliquid reports OI in base units, others in USD notional
+      // OI normalization: Hyperliquid reports OI in base units, others in USD notional.
+      // Logic lives in platforms/types.ts — the preview HTML uses the same helper.
       const adapter = getAdapter(market.platform);
-      const openInterest = adapter && adapter.oiIsNotional
-        ? market.openInterest
-        : market.openInterest * market.markPx;
+      const openInterest = normalizeOpenInterestUsd(market, adapter);
 
       finalData[marketId] = {
         contract: market.contract,

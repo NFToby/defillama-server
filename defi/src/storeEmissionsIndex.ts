@@ -106,12 +106,11 @@ const fetchProtocolData = async (protocols: string[]): Promise<ProtocolData[]> =
       const nextUnlockIndex = formattedData.findIndex(([date]) => Number(date) > now);
 
       function getCircSupplyAtIndex(index: number): number {
-        if (index == -1) return maxSupply;
         let supply: number = 0;
         (res.documentedData?.data ?? res.data).forEach(
           (item: { data: Array<{ timestamp: number; unlocked: number }> }) => {
             if (item.data == null) return;
-            supply += item.data[index].unlocked;
+            supply += item.data.at(index).unlocked;
           }
         );
         return supply;
