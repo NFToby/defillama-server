@@ -1,4 +1,4 @@
-import { AdapterType, ProtocolType, BaseAdapter, Adapter, SimpleAdapter, FetchOptions, FetchResult, } from "../../dimension_migration/adapters/types"
+import { AdapterType, ProtocolType, BaseAdapter, Adapter, SimpleAdapter, FetchOptions, FetchResult, } from "../types"
 import { Protocol } from "../../protocols/types"
 
 export { AdapterType, ProtocolType, BaseAdapter, Adapter, SimpleAdapter, FetchOptions, FetchResult, }
@@ -11,14 +11,15 @@ export type ChartBreakdownOptions = 'daily' | 'weekly' | 'monthly'
 
 export type ProtocolDimensionsExtraConfig = {
     defaultChartView?: ChartBreakdownOptions;
+    disableFromResponse?: boolean;  // sometimes we want to run an adapter and store the data, but hide it from the api while we investiage if it is legit
     adapter: string;
-    genuineSpikes?: string[]  // list of unix timestamps with valid spikes,
+    genuineSpikes?: [string, string][]  // list of [yyyy-mm-dd date, reason] with valid spikes
 }
 
 export type DimensionsConfig = {
     [K in AdapterType]?: string | ProtocolDimensionsExtraConfig;
 }
-export interface ProtocolAdaptor extends Protocol {
+export type ProtocolAdaptor = Protocol & {
     defillamaId: string
     displayName: string
     defaultChartView?: ChartBreakdownOptions
@@ -26,7 +27,7 @@ export interface ProtocolAdaptor extends Protocol {
     id2: string
     isProtocolInOtherCategories?: boolean
     protocolType?: ProtocolType
-    adapterType?: ProtocolType
+    adapterType?: AdapterType
     methodologyURL: string
     methodology?: string | IJSON<string> | any
     breakdownMethodology?: IJSON<IJSON<string>> | any
@@ -115,6 +116,15 @@ export enum AdaptorRecordType {
 
     dailyAppRevenue = "dar",
     dailyAppFees = "daf",
+
+    dailyNormalizedVolume = "dnvol",
+    dailyActiveLiquidity = "dal",
+
+    dailyActiveUsers = "dau",
+    dailyNewUsers = "dnu",
+    dailyTransactionsCount = "dtc",
+    dailyGasUsed = "dgu",
+
 }
 
 export const DEFAULT_CHART_BY_ADAPTOR_TYPE: IJSON<AdaptorRecordType> = {
@@ -128,6 +138,10 @@ export const DEFAULT_CHART_BY_ADAPTOR_TYPE: IJSON<AdaptorRecordType> = {
     [AdapterType.AGGREGATOR_DERIVATIVES]: AdaptorRecordType.dailyVolume,
     [AdapterType.BRIDGE_AGGREGATORS]: AdaptorRecordType.dailyBridgeVolume,
     [AdapterType.OPEN_INTEREST]: AdaptorRecordType.openInterestAtEnd,
+    [AdapterType.NORMALIZED_VOLUME]: AdaptorRecordType.dailyNormalizedVolume,
+    [AdapterType.NFT_VOLUME]: AdaptorRecordType.dailyVolume,
+    [AdapterType.ACTIVE_USERS]: AdaptorRecordType.dailyActiveUsers,
+    [AdapterType.NEW_USERS]: AdaptorRecordType.dailyNewUsers,
 }
 
 export const ACCOMULATIVE_ADAPTOR_TYPE: IJSON<AdaptorRecordType> = {
@@ -168,6 +182,12 @@ const EXTRA_TYPES: IJSON<AdaptorRecordType[]> = {
         AdaptorRecordType.dailySupplySideRevenue,
         AdaptorRecordType.dailyProtocolRevenue
     ], */
+    [AdapterType.DEXS]: [
+        AdaptorRecordType.dailyNotionalVolume,
+    ],
+    [AdapterType.DERIVATIVES]: [
+        AdaptorRecordType.dailyNotionalVolume,
+    ],
     [AdapterType.OPTIONS]: [
         AdaptorRecordType.dailyNotionalVolume,
     ],
@@ -179,7 +199,14 @@ const EXTRA_TYPES: IJSON<AdaptorRecordType[]> = {
     [AdapterType.OPEN_INTEREST]: [
         AdaptorRecordType.shortOpenInterestAtEnd,
         AdaptorRecordType.longOpenInterestAtEnd,
-    ]
+    ],
+    [AdapterType.NORMALIZED_VOLUME]: [
+        AdaptorRecordType.dailyActiveLiquidity,
+    ],
+    [AdapterType.ACTIVE_USERS]: [
+        AdaptorRecordType.dailyTransactionsCount,
+        AdaptorRecordType.dailyGasUsed,
+    ],
 }
 
 const EXTRA_N30D_TYPE: IJSON<AdaptorRecordType[]> = {
@@ -246,8 +273,21 @@ export type DIMENSIONS_ADAPTER_CACHE = {
     parentProtocolSummaries?: IJSON<PROTOCOL_SUMMARY>, // key is parent protocol id
     summaries?: Partial<Record<AdaptorRecordType, RecordSummary>>,
     allChains?: string[]
+    allCategories?: string[]
 }
 
+export interface EmissionsAggRecord {
+    value: number;
+    'by-label'?: IJSON<number>;
+}
+
+export interface EmissionsProtocolData {
+    id: string; // aave, uniswap, ...
+    yearly: IJSON<EmissionsAggRecord>;
+    quarterly: IJSON<EmissionsAggRecord>;
+    monthly: IJSON<EmissionsAggRecord>;
+    breakdownMethodology?: IJSON<string>;
+}
 
 export type RecordSummary = {
     total24h: number | null
@@ -256,6 +296,7 @@ export type RecordSummary = {
     chartBreakdown: IJSON<IJSON<number>>
     earliestTimestamp?: number
     chainSummary?: IJSON<RecordSummary>
+    categorySummary?: IJSON<RecordSummary>
     total7d?: number | null
     total30d?: number | null
     total14dto7d?: number | null
@@ -271,6 +312,7 @@ export type ProtocolSummary = RecordSummary & {
     change_7dover7d?: number
     average1y?: number
     monthlyAverage1y?: number
+    annualized1y?: number | null
     totalAllTime?: number
     breakdown24h?: any
     breakdown30d?: any

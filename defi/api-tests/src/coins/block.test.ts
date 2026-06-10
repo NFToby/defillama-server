@@ -9,6 +9,7 @@ import {
 } from '../../utils/testHelpers';
 import { validate } from '../../utils/validation';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.COINS.BASE_URL);
 
@@ -22,6 +23,17 @@ describe('Coins API - Block', () => {
     'avalanche',
     'bsc',
   ];
+
+  let corsResponse: ApiResponse<BlockResponse>;
+  beforeAll(async () => {
+    corsResponse = await apiClient.get<BlockResponse>(
+      endpoints.COINS.BLOCK('ethereum', Math.floor(Date.now() / 1000) - 86400)
+    );
+  }, 30000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(corsResponse);
+  });
 
   // Test with different timestamps
   const testTimestamps = [
@@ -142,7 +154,7 @@ describe('Coins API - Block', () => {
             expect(avgBlockTime).toBeGreaterThan(0);
             expect(avgBlockTime).toBeLessThan(60); // Most chains < 60s block time
             
-            console.log(`${chain} average block time: ${avgBlockTime.toFixed(2)}s`);
+            // console.log(`${chain} average block time: ${avgBlockTime.toFixed(2)}s`);
           }
         }, 60000);
       });
@@ -161,7 +173,7 @@ describe('Coins API - Block', () => {
       
       responses.forEach((response, index) => {
         if (response.status === 200) {
-          console.log(`${testChains[index]}: Block ${response.data.height} at ${new Date(response.data.timestamp * 1000).toISOString()}`);
+          // console.log(`${testChains[index]}: Block ${response.data.height} at ${new Date(response.data.timestamp * 1000).toISOString()}`);
           
           expect(response.data.height).toBeGreaterThan(0);
           expectValidTimestamp(response.data.timestamp);
@@ -284,7 +296,7 @@ describe('Coins API - Block', () => {
         expect(avgBlockTime).toBeGreaterThan(10);
         expect(avgBlockTime).toBeLessThan(15);
         
-        console.log(`Ethereum average block time: ${avgBlockTime.toFixed(2)}s`);
+        // console.log(`Ethereum average block time: ${avgBlockTime.toFixed(2)}s`);
       }
     }, 60000);
 
@@ -304,7 +316,7 @@ describe('Coins API - Block', () => {
         
         if (endBlock.status === 200 && startBlock.status === 200) {
           const blocksPerDay = endBlock.data.height - startBlock.data.height;
-          console.log(`${chain} blocks per day: ${blocksPerDay}`);
+          // console.log(`${chain} blocks per day: ${blocksPerDay}`);
           
           expect(blocksPerDay).toBeGreaterThan(100);
         }

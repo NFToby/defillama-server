@@ -9,6 +9,7 @@ import {
 } from '../../utils/testHelpers';
 import { validate } from '../../utils/validation';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.YIELDS_PRO.BASE_URL);
 
@@ -20,6 +21,10 @@ describe('Yields Pro API - Pools', () => {
   }, 30000);
 
   describe('Basic Response Validation', () => {
+    it('should expose CORS headers', () => {
+      expectCorsHeaders(poolsResponse);
+    });
+
     it('should return successful response with valid structure', () => {
       expectSuccessfulResponse(poolsResponse);
       expect(poolsResponse.data).toHaveProperty('status');
@@ -145,6 +150,18 @@ describe('Yields Pro API - Pools', () => {
 
     it('should have unique pool IDs', () => {
       const poolIds = poolsResponse.data.data.map((pool) => pool.pool);
+      // find and print up poolIds
+      const counts = new Map<string, number>();
+      for (const id of poolIds) {
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+      const duplicates = [...counts.entries()].filter(([, count]) => count > 1);
+      if (duplicates.length > 0) {
+        console.log(`Found ${duplicates.length} duplicate poolIds:`);
+        for (const [id, count] of duplicates) {
+          console.log(`  ${id} (x${count})`);
+        }
+      }
       const uniqueIds = new Set(poolIds);
       expect(uniqueIds.size).toBe(poolIds.length);
     });

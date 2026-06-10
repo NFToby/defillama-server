@@ -158,6 +158,7 @@ export const chainToCoingeckoId = {
   celestia: "celestia",
   aura: "aura-network",
   echelon: "echelon",
+  eni: "eni",
   ton: "the-open-network",
   alephium: "alephium",
   berachain: "berachain",
@@ -181,6 +182,7 @@ export const chainToCoingeckoId = {
   unichain: "unichain",
   ink: "ink",
   swellchain: "swellchain",
+  pharos: "pharos-network",
   plume_mainnet: "plume-network",
   hemi: "hemi",
   sty: "story",
@@ -254,7 +256,24 @@ export const chainToCoingeckoId = {
   plasma: 'plasma', 
   kasplex: 'kasplex', 
   monad: 'monad',
-  stable: 'stable'
+  stable: 'stable', 
+  megaeth: 'megaeth', 
+  metall2: 'metal-l2',
+  nxpc: 'henesys',
+  bittensor_evm: 'bittensor-evm',
+  katana: 'katana',
+  hsk: 'hashkey-chain',
+  horizen: 'horizen',
+  rbn: 'redbelly-network',
+  '0g': '0g',
+  spn: 'Superposition',
+  mantra: 'mantra-evm',
+  citrea: 'citrea',
+  xrplevm: 'xrpl-evm',
+  canton: 'canton-network',
+  blockdag: 'blockdag',
+  proptech: 'proptech',
+  tempo: 'tempo'
 };
 
 export const cgPlatformtoChainId: { [key: string]: string } = Object.entries(chainToCoingeckoId).reduce(

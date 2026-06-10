@@ -3,12 +3,30 @@ import { getProtocolTvl } from "./utils/getProtocolTvl";
 import parentProtocolsList from "./protocols/parentProtocols";
 import type { IParentProtocol } from "./protocols/types";
 import type { IProtocol, LiteProtocol, ProtocolTvls } from "./types";
-import { currentChainLabelsList, replaceChainNamesForOraclesByChain } from "./utils/normalizeChain";
+import { chainCoingeckoIds, currentChainLabelsList, replaceChainNamesForOraclesByChain } from "./utils/normalizeChain";
 import { extraSections } from "./utils/normalizeChain";
 import fetch from "node-fetch";
-import { excludeProtocolInCharts, hiddenCategoriesFromUISet, } from "./utils/excludeProtocols";
+import { excludeProtocolInCharts, hiddenCategoriesFromUISet } from "./utils/excludeProtocols";
 import protocols from "./protocols/data";
+import { readRouteData } from "./api2/cache/file-cache";
+import {
+  addAdjustedChainTvls,
+  getDimensionConfiguredChainLabels,
+  getVisibleChainLabels,
+  hasDimensionsChainVisibility,
+} from "./utils/visibleChains";
 
+export { getDimensionConfiguredChainLabels, getVisibleChainLabels, hasDimensionsChainVisibility };
+
+function hasDimensionsChainAggData(dimensionsChainAggData: any = {}) {
+  if (typeof dimensionsChainAggData !== "object" || dimensionsChainAggData === null) return false;
+
+  for (const _chain in dimensionsChainAggData) {
+    return true;
+  }
+
+  return false;
+}
 export async function storeGetProtocols({
   getCoinMarkets,
   getLastHourlyRecord,
@@ -34,6 +52,27 @@ export async function storeGetProtocols({
     getLastHourlyTokensUsd,
   });
 
+  const getParentCoinMarkets = () =>
+    fetch("https://coins.llama.fi/mcaps", {
+      method: "POST",
+      body: JSON.stringify({
+        coins: parentProtocolsList
+          .filter((parent) => typeof parent.gecko_id === "string")
+          .map((parent) => `coingecko:${parent.gecko_id}`),
+      }),
+    }).then((r) => r.json());
+
+  const _getCoinMarkets = getCoinMarkets ?? getParentCoinMarkets;
+  const coinMarketsPromise = _getCoinMarkets();
+
+  const childrenByParent = new Map<string, IProtocol[]>();
+  for (const protocol of response) {
+    if (!protocol.parentProtocol) continue;
+    const children = childrenByParent.get(protocol.parentProtocol);
+    if (children) children.push(protocol);
+    else childrenByParent.set(protocol.parentProtocol, [protocol]);
+  }
+
   const trimmedResponse: LiteProtocol[] = (
     await Promise.all(
       response.map(async (protocol: IProtocol) => {
@@ -55,9 +94,10 @@ export async function storeGetProtocols({
           category: protocol.category,
           ...(protocol.tags ? { tags: protocol.tags } : {}),
           chains: protocol.chains,
-          oracles: protocol.oraclesBreakdown && protocol.oraclesBreakdown.length > 0
-            ? protocol.oraclesBreakdown.map((x) => x.name)
-            : protocol.oracles,
+          oracles:
+            protocol.oraclesBreakdown && protocol.oraclesBreakdown.length > 0
+              ? protocol.oraclesBreakdown.map((x) => x.name)
+              : protocol.oracles,
           oraclesByChain: replaceChainNamesForOraclesByChain(true, protocol.oraclesByChain),
           forkedFrom,
           listedAt: protocol.listedAt,
@@ -76,56 +116,42 @@ export async function storeGetProtocols({
           defillamaId: protocol.id,
           governanceID: protocol.governanceID,
           geckoId: protocol.gecko_id,
-          ...(protocol.deprecated ? { deprecated: protocol.deprecated } : {})
+          ...(protocol.deprecated ? { deprecated: protocol.deprecated } : {}),
         };
       })
     )
   ).filter((p) => !hiddenCategoriesFromUISet.has(p.category ?? ""));
 
   const chains = {} as { [chain: string]: number };
+  const protocolChainLabels: string[] = [];
+  const protocolChainLabelsSet = new Set<string>();
   const protocolCategoriesSet: Set<string> = new Set();
+
+  for (const protocol of response) {
+    for (const chain of protocol.chains ?? []) {
+      if (protocolChainLabelsSet.has(chain)) continue;
+
+      protocolChainLabelsSet.add(chain);
+      protocolChainLabels.push(chain);
+    }
+  }
 
   trimmedResponse.forEach((p) => {
     if (!p.category) return;
 
     protocolCategoriesSet.add(p.category);
     if (!excludeProtocolInCharts(p.category)) {
-      p.chains.forEach((c: string) => {
-        chains[c] = (chains[c] ?? 0) + (p.chainTvls[c]?.tvl ?? 0);
-
-        if (p.chainTvls[`${c}-liquidstaking`]) {
-          chains[c] = (chains[c] ?? 0) - (p.chainTvls[`${c}-liquidstaking`]?.tvl ?? 0);
-        }
-
-        if (p.chainTvls[`${c}-doublecounted`]) {
-          chains[c] = (chains[c] ?? 0) - (p.chainTvls[`${c}-doublecounted`]?.tvl ?? 0);
-        }
-
-        if (p.chainTvls[`${c}-dcAndLsOverlap`]) {
-          chains[c] = (chains[c] ?? 0) + (p.chainTvls[`${c}-dcAndLsOverlap`]?.tvl ?? 0);
-        }
-      });
+      addAdjustedChainTvls(chains, p.chainTvls, p.chains);
     }
   });
 
-  const getParentCoinMarkets = () =>
-    fetch("https://coins.llama.fi/mcaps", {
-      method: "POST",
-      body: JSON.stringify({
-        coins: parentProtocolsList
-          .filter((parent) => typeof parent.gecko_id === "string")
-          .map((parent) => `coingecko:${parent.gecko_id}`),
-      }),
-    }).then((r) => r.json());
-
-  const _getCoinMarkets = getCoinMarkets ?? getParentCoinMarkets;
-  const coinMarkets = await _getCoinMarkets();
+  const coinMarkets = await coinMarketsPromise;
 
   const extendedParentProtocols = [] as any[];
   const parentProtocols: IParentProtocol[] = parentProtocolsList.map((parent) => {
     const chains: Set<string> = new Set();
 
-    const children = response.filter((protocol) => protocol.parentProtocol === parent.id);
+    const children = childrenByParent.get(parent.id) ?? [];
     let symbol = "-",
       tvl = 0,
       chainTvls = {} as { [chain: string]: number };
@@ -134,7 +160,7 @@ export async function storeGetProtocols({
         symbol = child.symbol;
       }
       tvl += child.tvl ?? 0;
-      Object.entries(child.chainTvls).forEach(([chain, chainTvl]) => {
+      Object.entries(child.chainTvls ?? {}).forEach(([chain, chainTvl]) => {
         chainTvls[chain] = (chainTvls[chain] ?? 0) + chainTvl;
       });
       child.chains?.forEach((chain: string) => chains.add(chain));
@@ -159,17 +185,34 @@ export async function storeGetProtocols({
     };
   });
 
+  const dimensionsChainAggData = await readRouteData("/dimensions/chain-agg-data", {
+    skipErrorLog: true,
+  });
+  let fallbackChainLabels: string[] = [];
+  if (!hasDimensionsChainAggData(dimensionsChainAggData)) {
+    const previousProtocols2Data = await readRouteData("/lite/protocols2", {
+      skipErrorLog: true,
+    });
+    if (previousProtocols2Data?.chains) {
+      fallbackChainLabels = previousProtocols2Data.chains;
+    } else {
+      for (const chain of currentChainLabelsList) {
+        if (chainCoingeckoIds[chain]?.dimensions) {
+          fallbackChainLabels.push(chain);
+        }
+      }
+    }
+    console.warn(
+      "Missing /dimensions/chain-agg-data while computing visible chains for /lite/protocols2, falling back to cached visible chains"
+    );
+  }
 
-  const chainsOutput = Object.entries(chains)
-    .sort((a, b) => b[1] - a[1])
-    .map((c) => c[0])
-
-  // includes chains that are not linked to any protocol but are in chainCoingeckoIds
-  const addedChainsSet = new Set(chainsOutput)
-  currentChainLabelsList.forEach((chain) => {
-    if (!addedChainsSet.has(chain)) chainsOutput.push(chain)
-  })
-
+  const chainsOutput = getVisibleChainLabels(
+    chains,
+    dimensionsChainAggData ?? {},
+    fallbackChainLabels.concat(protocolChainLabels),
+    getDimensionConfiguredChainLabels()
+  );
 
   const protocols2Data = {
     protocols: trimmedResponse,
@@ -193,7 +236,7 @@ export async function storeGetProtocols({
       mcap: protocol.mcap,
       gecko_id: protocol.gecko_id,
       parent: protocol.parentProtocol,
-      ...(protocol.deprecated ? { deprecated: true } : {})
+      ...(protocol.deprecated ? { deprecated: true } : {}),
     }))
     .concat(extendedParentProtocols);
 

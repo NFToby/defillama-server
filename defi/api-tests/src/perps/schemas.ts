@@ -12,6 +12,8 @@ export const openInterestResponseSchema = z.union([
     total48hto24h: z.union([z.number(), z.null()]).optional(),
     total7d: z.union([z.number(), z.null()]).optional(),
     total30d: z.union([z.number(), z.null()]).optional(),
+    total1y: z.union([z.number(), z.null()]).optional(),
+  annualized1y: z.union([z.number(), z.null()]).optional(),
     totalAllTime: z.union([z.number(), z.null()]).optional(),
     change_1d: z.union([z.number(), z.null()]).optional(),
     protocols: z.array(z.any()).optional(),
@@ -28,6 +30,27 @@ export const perpsChartItemSchema = z.object({
   dailyFees: z.union([z.number(), z.null()]).optional(),
   dailyRevenue: z.union([z.number(), z.null()]).optional(),
   dailyPremiumVolume: z.union([z.number(), z.null()]).optional(),
+});
+
+export const perpsChainSummarySchema = z.object({
+  total24h: z.union([z.number(), z.null()]).optional(),
+  total48hto24h: z.union([z.number(), z.null()]).optional(),
+  total7d: z.union([z.number(), z.null()]).optional(),
+  total14dto7d: z.union([z.number(), z.null()]).optional(),
+  total30d: z.union([z.number(), z.null()]).optional(),
+  total60dto30d: z.union([z.number(), z.null()]).optional(),
+  total1y: z.union([z.number(), z.null()]).optional(),
+  annualized1y: z.union([z.number(), z.null()]).optional(),
+  total7DaysAgo: z.union([z.number(), z.null()]).optional(),
+  total30DaysAgo: z.union([z.number(), z.null()]).optional(),
+  totalAllTime: z.union([z.number(), z.null()]).optional(),
+  average1y: z.union([z.number(), z.null()]).optional(),
+  monthlyAverage1y: z.union([z.number(), z.null()]).optional(),
+  change_1d: z.union([z.number(), z.null()]).optional(),
+  change_7d: z.union([z.number(), z.null()]).optional(),
+  change_1m: z.union([z.number(), z.null()]).optional(),
+  change_7dover7d: z.union([z.number(), z.null()]).optional(),
+  change_30dover30d: z.union([z.number(), z.null()]).optional(),
 });
 
 // Overview item schema (for derivatives list)
@@ -51,6 +74,8 @@ export const perpsOverviewItemSchema = z.object({
   total48hto24h: z.union([z.number(), z.null()]).optional(),
   total7d: z.union([z.number(), z.null()]).optional(),
   total30d: z.union([z.number(), z.null()]).optional(),
+  total1y: z.union([z.number(), z.null()]).optional(),
+  annualized1y: z.union([z.number(), z.null()]).optional(),
   totalAllTime: z.union([z.number(), z.null()]).optional(),
   change_1d: z.union([z.number(), z.null()]).optional(),
   
@@ -86,6 +111,7 @@ export const perpsOverviewItemSchema = z.object({
   defaultChartView: z.union([z.string(), z.null()]).optional(),
   doublecounted: z.union([z.boolean(), z.null()]).optional(),
   breakdownMethodology: z.union([z.record(z.string(), z.any()), z.null()]).optional(),
+  chainBreakdown: z.record(z.string(), perpsChainSummarySchema).optional(),
 });
 
 // Aggregated overview response schema
@@ -98,6 +124,7 @@ export const perpsAggregatedOverviewSchema = z.object({
   total30d: z.union([z.number(), z.null()]).optional(),
   total60dto30d: z.union([z.number(), z.null()]).optional(),
   total1y: z.union([z.number(), z.null()]).optional(),
+  annualized1y: z.union([z.number(), z.null()]).optional(),
   totalAllTime: z.union([z.number(), z.null()]).optional(),
   total7DaysAgo: z.union([z.number(), z.null()]).optional(),
   total30DaysAgo: z.union([z.number(), z.null()]).optional(),
@@ -134,4 +161,3 @@ export const perpsOverviewResponseSchema = perpsAggregatedOverviewSchema;
 
 // Summary response (single protocol with detailed data)
 export const perpsSummaryResponseSchema = perpsOverviewItemSchema;
-

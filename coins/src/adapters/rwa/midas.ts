@@ -1,6 +1,7 @@
 import { Write } from "../utils/dbInterfaces";
 import { getApi } from "../utils/sdk";
 import getWrites from "../utils/getWrites";
+import { checkOracleFresh } from "../utils/oracle";
 
 const DATA_FEED_ABI =
   "function getDataInBase18() external view returns (int256 answer)";
@@ -79,16 +80,11 @@ const contracts: Record<string, TokenConfig[]> = {
   //     oracle: "0xB5D6483c556Bc6810b55B983315016Fcb374186D",
   //     denomination: "BTC",
   //   },
-  //   {
-  //     name: "mF-ONE",
-  //     token: "0x238a700eD6165261Cf8b2e544ba797BC11e466Ba",
-  //     oracle: "0xCF4e49f5e750Af8F2f9Aa1642B68E5839D9c1C00",
-  //   },
-  //   {
-  //     name: "mHYPER",
-  //     token: "0x9b5528528656DBC094765E2abB79F293c21191B9",
-  //     oracle: "0x92004DCC5359eD67f287F32d12715A37916deCdE",
-  //   },
+    {
+      name: "mF-ONE",
+      token: "0x238a700eD6165261Cf8b2e544ba797BC11e466Ba",
+      oracle: "0xCF4e49f5e750Af8F2f9Aa1642B68E5839D9c1C00",
+    },
   //   {
   //     name: "mAPOLLO",
   //     token: "0x7CF9DEC92ca9FD46f8d86e7798B72624Bc116C05",
@@ -136,6 +132,14 @@ const contracts: Record<string, TokenConfig[]> = {
       token: "0xC8495EAFf71D3A563b906295fCF2f685b1783085",
       oracle: "0xb75B82b2012138815d1A2c4aB5B8b987da043157",
       denomination: "BTC",
+    },
+  ],
+  optimism: [
+    {
+      name: "mRe7ETH",
+      token: "0xE7Ba07519dFA06e60059563F484d6090dedF21B3",
+      oracle: "0xcFfe26979e96B9E0454cC83aa03FC973C9Eb0E5E",
+      denomination: "ETH",
     },
   ],
   // base: [
@@ -254,6 +258,10 @@ async function getBaseAssetPrices(
 
     oracles.forEach((oracle, i) => {
       if (calls[i]?.answer) {
+        if (!checkOracleFresh(calls[i].updatedAt, { timestamp, label: `midas-${oracle.asset}`, throwIfStale: false })) {
+          console.warn(`Stale base asset oracle for ${oracle.asset} on ${chain}, skipping`);
+          return;
+        }
         prices[oracle.asset] =
           Number(calls[i].answer) / Math.pow(10, oracle.decimals);
       } else {
@@ -327,6 +335,7 @@ async function getTokenPrices(
     timestamp,
     pricesObject: prices,
     projectName: "midas",
+    confidence: 1
   });
 }
 

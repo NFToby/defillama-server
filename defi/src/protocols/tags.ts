@@ -18,6 +18,30 @@ export const CategoryTagMap = {
     "Private Equity",
     "Tokenized Trading Strategies"
   ],
+  Dexs: [
+    "AMM",
+    "CLMM",
+    "ve(3,3)",
+    "StableSwap",
+    "Weighted Pool AMM",
+    "Hook-based AMM",
+    "Prop AMM",
+    "Order Book",
+    "DLMM",
+    "DLL",
+    "RFQ"
+  ],
+  Interface: [
+    "Hyperliquid HIP3 Deployer",
+    "Hyperliquid Builder",
+    "Orderly Builder",
+    "SYMMIO Builder",
+    "Extended Builder",
+    "Polymarket Builder"
+  ],
+  'Staking Pool': [
+    'Hyperliquid Staking',
+  ],
 }
 
 export const TagCatetgoryMap: Record<string, string> = {}

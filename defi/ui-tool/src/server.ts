@@ -7,9 +7,11 @@ process.env.LLAMA_DEBUG_MODE = 'TRUE'
 const WS = require('ws');
 const { spawn, } = require('child_process');
 
-import { dimensionFormChoices, removeWaitingRecords, runDimensionsRefill, sendWaitingRecords, storeAllWaitingRecords } from './dimensions'
+import { dimensionFormChoices, removeWaitingRecords, runDimensionsRefill, sendWaitingRecords, storeAllWaitingRecords, dimensionsDeleteGetList, dimensionsDeleteSelectedRecords, dimensionsDeleteAllRecords, dimensionsDeleteClearList, sendDimensionsDeleteWaitingRecords } from './dimensions'
 import { runMiscCommand } from './misc';
-import { runTvlAction, tvlProtocolList, tvlStoreAllWaitingRecords, removeTvlStoreWaitingRecords, sendTvlStoreWaitingRecords, sendTvlDeleteWaitingRecords, tvlDeleteClearList, tvlDeleteSelectedRecords, tvlDeleteAllRecords, } from './tvl'
+import { apiTestFormChoices, runApiTests, stopApiTests } from './api-tests';
+import { runSpikesCommand } from './spikes';
+import { runTvlAction, tvlProtocolList, tvlProtocolRefillability, tvlStoreAllWaitingRecords, removeTvlStoreWaitingRecords, sendTvlStoreWaitingRecords, sendTvlDeleteWaitingRecords, tvlDeleteClearList, tvlDeleteSelectedRecords, tvlDeleteAllRecords, } from './tvl'
 
 import { setConfig } from './utils/config';
 import getTvlCacheEnv from '../../src/api2/env';
@@ -17,7 +19,7 @@ import getTvlCacheEnv from '../../src/api2/env';
 async function start() {
   await setConfig()
 
-  
+
   let isProductionMode = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod';
   isProductionMode = isProductionMode && !process.env.UI_TOOL_FORCE_DEV_MODE; // this is needed because of the setConfig()
 
@@ -55,11 +57,16 @@ async function start() {
       // Start React with specific port and environment
       reactApp = spawn(npmPath, ['run', 'start-react'], {
         cwd: reactAppPath,
+        shell: true,
         env: {
           ...process.env,
-          PORT: process.env.UI_TOOL_FORCE_DEV_MODE ? 5002: 5001
+          PORT: process.env.UI_TOOL_FORCE_DEV_MODE ? 5002 : 5001
         }
       });
+
+      // Pipe stdout and stderr to terminal
+      reactApp.stdout.pipe(process.stdout);
+      reactApp.stderr.pipe(process.stderr);
     } catch (error) {
       console.error('Error starting React app:', error);
     }
@@ -116,6 +123,8 @@ async function start() {
     console.log('- Stopping React app');
     if (reactApp)
       reactApp.kill();
+    // Stop any running API tests
+    stopApiTests();
     console.log('✅ Cleanup complete\n');
     process.exit(0);
   };
@@ -141,11 +150,12 @@ async function start() {
 
     ws.send(JSON.stringify({
       type: 'init',
-      data: { dimensionFormChoices, tvlProtocolList }
+      data: { dimensionFormChoices, tvlProtocolList, tvlProtocolRefillability, apiTestFormChoices }
     }));
     sendWaitingRecords(ws);
     sendTvlStoreWaitingRecords(ws);
     sendTvlDeleteWaitingRecords(ws);
+    sendDimensionsDeleteWaitingRecords(ws);
 
     // start streaming logs to the client
     const wrappedLog = (...args: any) => {
@@ -187,6 +197,18 @@ async function start() {
         case 'reload-table':
           sendWaitingRecords(ws);
           break;
+        case 'dimensions-delete-get-list':
+          await dimensionsDeleteGetList(ws, data.data);
+          break;
+        case 'dimensions-delete-delete-records':
+          await dimensionsDeleteSelectedRecords(ws, data.data);
+          break;
+        case 'dimensions-delete-delete-all':
+          await dimensionsDeleteAllRecords(ws);
+          break;
+        case 'dimensions-delete-clear-list':
+          dimensionsDeleteClearList(ws);
+          break;
 
 
 
@@ -215,6 +237,16 @@ async function start() {
 
         case 'misc-runCommand':
           runMiscCommand(ws, data.data);
+          break;
+
+        case 'api-test-runCommand':
+          runApiTests(ws, data.data);
+          break;
+        case 'api-test-stop':
+          stopApiTests();
+          break;
+        case 'spikes-runCommand':
+          runSpikesCommand(ws, data.data);
           break;
 
         default: console.error('Unknown message type:', data.type); break;

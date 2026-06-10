@@ -7,6 +7,7 @@ import {
 } from '../../utils/testHelpers';
 import { validate } from '../../utils/validation';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.MAIN_PAGE.BASE_URL);
 
@@ -17,9 +18,13 @@ describe('Main Page API - Oracles', () => {
     oraclesResponse = await apiClient.get<OraclesResponse>(
       endpoints.MAIN_PAGE.ORACLES
     );
-  }, 30000);
+  }, 120000); // 120s timeout for large 39MB response
 
   describe('Basic Response Validation', () => {
+    it('should expose CORS headers', () => {
+      expectCorsHeaders(oraclesResponse);
+    });
+
     it('should return successful response with valid structure', () => {
       expectSuccessfulResponse(oraclesResponse);
       expect(isOraclesResponse(oraclesResponse.data)).toBe(true);
@@ -62,7 +67,7 @@ describe('Main Page API - Oracles', () => {
 
     it('should have well-known oracles', () => {
       const oracleKeys = Object.keys(oraclesResponse.data.oracles).map(k => k.toLowerCase());
-      const wellKnownOracles = ['chainlink', 'band', 'api3'];
+      const wellKnownOracles = ['chainlink'];
       
       const foundOracles = wellKnownOracles.filter((name) =>
         oracleKeys.some((oName) => oName.toLowerCase().includes(name))

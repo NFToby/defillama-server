@@ -23,6 +23,12 @@ export function aave(timestamp: number = 0) {
     getTokenPrices("era", "0x0753E3637ddC6efc40759D9c347251046644F25F", "0x1Bc8dbF1f5aF8094Aa166098131116CaAd6B22F9", "v3", timestamp,),
     getTokenPrices("sonic", "0x5E5D87858592d211fdb4503F09FB2B5cf805cB51", null, "v3", timestamp,),
     getTokenPrices("plasma", "0xeE8Ba3464abcEeA6E34554d174DCbdd66083641b", null, "v3", timestamp,),
+    getTokenPrices("megaeth", "0x085C658057bD4be6D09b8449e71d78601f9b2303", null, "v3", timestamp,),
+    getTokenPrices("mantle", "0x54114591963CF60EF3aA63bEfD6eC263D98145a4", null, "v3", timestamp,),
+    getTokenPrices("soneium", "0x629A5a607aC4901252e4C48a0Fde156785598F5b", null, "v3", timestamp,),
+    getTokenPrices("celo", "0xB4B6939D0804DCE8d0Ac3e59b2eD5C072829d56b", null, "v3", timestamp,),
+    getTokenPrices("ink", "0x501B4c19dd9C2e06E94dA7b6D5Ed4ddA013EC741", null, "v3", timestamp,),
+    getTokenPrices("linea", "0x96dFCCB3F9ACDaF6c8f8a35E814023C3484d1eA2", null, "v3", timestamp,),
   ]);
 }
 export function geist(timestamp: number = 0) {
@@ -77,6 +83,22 @@ export function moolaMarkets(timestamp: number = 0) {
   })
 }
 
+export function aaveMantle(timestamp: number = 0) {
+  return getTokenPrices("mantle", "", null, "v3", timestamp, {
+    lendingPool: "0x458F293454fE0d67EC0655f3672301301DD51422"
+  })
+}
+
+export function superlend(timestamp: number = 0) {
+  return getTokenPrices("etlk", "0xEcbDd440C7a929d7524784Af634dF9EB0747b9e7", null, "v3", timestamp)
+}
+
+export function aaveHorizon(timestamp: number = 0) {
+  return getTokenPrices("ethereum", "", null, "v3", timestamp, {
+    lendingPool: "0xAe05Cd22df81871bc7cC2a04BeCfb516bFe332C8",
+  });
+}
+
 export const adapters = {
   aave,
   geist,
@@ -88,5 +110,8 @@ export const adapters = {
   hyperlend, 
   hypurrfi, 
   sparkLend, 
-  moolaMarkets
+  moolaMarkets,
+  aaveMantle,
+  superlend,
+  aaveHorizon,
 };

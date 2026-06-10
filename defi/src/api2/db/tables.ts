@@ -18,18 +18,6 @@ const defaultDataColumns = {
   is_simulated: DataTypes.BOOLEAN,
 }
 
-const defaultTvlMetricsDataColumns = {
-  time: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-  },
-  protocol: {
-    type: DataTypes.STRING(200),
-    primaryKey: true,
-  },
-}
-
-
 class DAILY_TVL extends Model { }
 class DAILY_TOKENS_TVL extends Model { }
 class DAILY_USD_TOKENS_TVL extends Model { }
@@ -40,13 +28,9 @@ class HOURLY_USD_TOKENS_TVL extends Model { }
 class HOURLY_RAW_TOKENS_TVL extends Model { }
 // class JSON_CACHE extends Model { }
 class DIMENSIONS_DATA extends Model { }
-
-
-class TvlMetricsErrors extends Model { }
-class TvlMetricsErrors2 extends Model { }
-class TvlMetricsCompleted extends Model { }
-class TvlMetricsTimeouts extends Model { }
-class TvlMetricsStaleCoins extends Model { }
+class DIMENSIONS_HOURLY_DATA extends Model { }
+class CG_TOKEN_METADATA extends Model { }
+class CMC_TOKEN_METADATA extends Model { }
 
 export const Tables = {
   DAILY_TVL,
@@ -59,14 +43,12 @@ export const Tables = {
   HOURLY_RAW_TOKENS_TVL,
   // JSON_CACHE,
   DIMENSIONS_DATA,
-  TvlMetricsErrors,
-  TvlMetricsErrors2,
-  TvlMetricsCompleted,
-  TvlMetricsTimeouts,
-  TvlMetricsStaleCoins,
+  DIMENSIONS_HOURLY_DATA,
+  CG_TOKEN_METADATA,
+  CMC_TOKEN_METADATA,
 }
 
-export function initializeTables(sequelize: Sequelize, mSequalize?: Sequelize) {
+export function initializeTables(sequelize: Sequelize) {
   const getTableOptions = (tableName: string) => ({
     sequelize,
     timestamps: true,
@@ -115,6 +97,21 @@ export function initializeTables(sequelize: Sequelize, mSequalize?: Sequelize) {
       allowNull: true, // Assuming 'breakdownByLabelByChain' can be null
       defaultValue: null, // Ensure it defaults to null if not provided
     },
+    tb: { // Token breakdown
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tbl: { // Token breakdown by label
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tblc: { // Token breakdown by label and chain
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
     timeS: {
       type: DataTypes.STRING,
       primaryKey: true,
@@ -141,114 +138,78 @@ export function initializeTables(sequelize: Sequelize, mSequalize?: Sequelize) {
     ]
   })
 
-  /* JSON_CACHE.init({
+  DIMENSIONS_HOURLY_DATA.init({
     id: {
       type: DataTypes.STRING,
       primaryKey: true,
     },
     timestamp: {
-      type: DataTypes.INTEGER, // Assuming 'unixtimestamp' is an integer type
+      type: DataTypes.INTEGER,
     },
     data: {
       type: DataTypes.JSON,
+    },
+    bl: { // Breakdown by label
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    blc: { // Breakdown by label by chain
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tb: { // Token breakdown (usdTvl + usdTokenBalances + rawTokenBalances)
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tbl: { // Token breakdown by label
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tblc: { // Token breakdown by label and chain
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    timeS: {
+      type: DataTypes.STRING,
+      primaryKey: true,
+    },
+    type: {
+      type: DataTypes.STRING,
+      primaryKey: true,
     },
   }, {
     sequelize,
     timestamps: true,
     createdAt: 'createdat',
     updatedAt: 'updatedat',
-    tableName: 'json_cache',
+    tableName: 'dimensions_hourly_data',
     indexes: [
-      {
-        name: 'json_cache_id_index', // Name of the index for the 'id' field
-        fields: ['id'],
-      },
-    ]
-  }) */
+      { name: 'dimensions_hourly_data_id_index', fields: ['id'] },
+      { name: 'dimensions_hourly_data_type_index', fields: ['type'] },
+      { name: 'dimensions_hourly_data_timestamp_index', fields: ['timestamp'] },
+      { name: 'dimensions_hourly_data_updatedat_index',fields: ['updatedat'] },
+    ],
+  })
 
-  if (!mSequalize) {
-    console.log('Metrics DB config is missing, skipping metrics tables initialization')
-    return Tables
+  const tokenMetadataColumns = {
+    id: { type: DataTypes.STRING, primaryKey: true },
+    data: { type: DataTypes.JSON },
   }
-
-  const getMetricsTableOptions = (tableName: string) => ({
-    sequelize: mSequalize,
+  const getTokenMetadataOptions = (tableName: string) => ({
+    sequelize,
     timestamps: true,
     createdAt: 'createdat',
     updatedAt: 'updatedat',
     tableName,
-    indexes: [
-      {
-        name: tableName + '_idx_time',
-        fields: ['time'],
-      },
-      {
-        name: tableName + '_idx_protocol',
-        fields: ['protocol'],
-      },
-    ]
   })
 
-  TvlMetricsErrors.init({
-    ...defaultTvlMetricsDataColumns,
-    error: {
-      type: DataTypes.TEXT,
-    },
-  }, getMetricsTableOptions('tvl_metrics_errors'))
-  TvlMetricsErrors2.init({
-    ...defaultTvlMetricsDataColumns,
-    error: {
-      type: DataTypes.TEXT,
-    },
-    storedKey: {
-      type: DataTypes.STRING,
-      primaryKey: true,
-    },
-    chain: {
-      type: DataTypes.STRING,
-    },
-  }, getMetricsTableOptions('tvl_metrics_errors2'))
-  TvlMetricsCompleted.init({
-    ...defaultTvlMetricsDataColumns,
-    elapsedTime: {
-      type: DataTypes.INTEGER,
-    },
-    storedKey: {
-      type: DataTypes.STRING,
-      primaryKey: true,
-    },
-    chain: {
-      type: DataTypes.STRING,
-    },
-  }, getMetricsTableOptions('tvl_metrics_completed'))
-  TvlMetricsTimeouts.init(defaultTvlMetricsDataColumns, getMetricsTableOptions('tvl_metrics_timeouts'))
-  TvlMetricsStaleCoins.init({
-    time: {
-      type: DataTypes.INTEGER,
-      primaryKey: true,
-    },
-    address: {
-      type: DataTypes.STRING(500),
-      primaryKey: true,
-    },
-    lastUpdate: {
-      type: DataTypes.INTEGER,
-    },
-    chain: {
-      type: DataTypes.STRING(200),
-      primaryKey: true,
-    },
-    symbol: {
-      type: DataTypes.STRING(200),
-    },
-  }, {
-    ...getMetricsTableOptions('tvl_metrics_stale_coins'),
-    indexes: [
-      {
-        name: 'tvl_metrics_stale_coins_id_index',
-        fields: ['time'],
-      }]
-  })
+  CG_TOKEN_METADATA.init(tokenMetadataColumns, getTokenMetadataOptions('cg_token_metadata'))
+  CMC_TOKEN_METADATA.init(tokenMetadataColumns, getTokenMetadataOptions('cmc_token_metadata'))
 
   return Tables
 }

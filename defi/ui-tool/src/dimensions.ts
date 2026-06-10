@@ -1,6 +1,7 @@
 import loadAdaptorsData from "../../src/adaptors/data"
-import { AdapterType } from "../../src/adaptors/data/types";
-import { getAllDimensionsRecordsTimeS } from "../../src/adaptors/db-utils/db2";
+import { AdapterType, AdaptorRecordType, ACCOMULATIVE_ADAPTOR_TYPE } from "../../src/adaptors/data/types";
+import { getAllDimensionsRecordsTimeS, getDimensionsRecordsInRange, storeAdapterRecord } from "../../src/adaptors/db-utils/db2";
+import { AdapterRecord2 } from "../../src/adaptors/db-utils/AdapterRecord2";
 import { getTimestampString } from "../../src/api2/utils";
 import { handler2, DimensionRunOptions } from "../../src/adaptors/handlers/storeAdaptorData";
 import PromisePool from '@supercharge/promise-pool';
@@ -34,6 +35,8 @@ export async function runDimensionsRefill(ws: any, args: any) {
   const protocolToRun = args.protocol
   const checkBeforeInsert = args.checkBeforeInsert
   const delayBetweenRuns = args.delayBetweenRuns ?? 0
+  const parallelHourlyProcessCount = args.parallelHourlyProcessCount ?? 1
+  const skipHourlyCache = !!args.skipHourlyCache
   const protocolNames = new Set([protocolToRun])
   if (checkBeforeInsert) args.dryRun = true
 
@@ -50,6 +53,12 @@ export async function runDimensionsRefill(ws: any, args: any) {
 
   if (!protocol) {
     throw new Error(`Protocol "${protocolToRun}" not found for adapter type "${adapterType}"`)
+  }
+
+  // CSV loading mode: build records directly from a pasted CSV instead of running the adapter's fetch functions
+  if (args.loadFromCsv) {
+    await loadRecordsFromCsv(ws, { csvText: args.csvText, adapterType: adapterType as AdapterType, protocol })
+    return
   }
 
   if (fromTimestamp > toTimestamp) {
@@ -82,6 +91,8 @@ export async function runDimensionsRefill(ws: any, args: any) {
           protocolNames,
           isRunFromRefillScript: true,
           checkBeforeInsert,
+          skipHourlyCache,
+          parallelHourlyProcessCount,
         }
         items.push(eventObj)
       }
@@ -98,6 +109,8 @@ export async function runDimensionsRefill(ws: any, args: any) {
         protocolNames,
         isRunFromRefillScript: true,
         checkBeforeInsert,
+        skipHourlyCache,
+        parallelHourlyProcessCount,
       }
       items.push(eventObj)
 
@@ -144,6 +157,206 @@ function getDaysBetweenTimestamps(from: number, to: number): number {
   return Math.round((to - from) / ONE_DAY_IN_SECONDS)
 }
 
+type CsvAggregated = { [shortKey: string]: { value: number, chains: { [chain: string]: number } } }
+type CsvLog = { level: 'log' | 'error', text: string }
+type CsvBuildResult = { records: AdapterRecord2[], logs: CsvLog[], skippedRows: number }
+
+// Parse a pasted CSV into dimension records, WITHOUT touching the DB or websocket - pure and testable.
+// The records produced are identical in shape to what the normal adapter-fetch path stages, so the
+// existing "Save All" flow stores them the same way (see loadRecordsFromCsv / storeAllWaitingRecords).
+//
+// Expected CSV shape (headers are case-insensitive, order does not matter):
+//   - a date column: one of `date`, `timestamp`, `time`, `day` (YYYY-MM-DD, ISO, or unix seconds/ms)
+//   - an optional `chain` column - when present, multiple rows per date (one per chain) are aggregated
+//     into a single record with a per-chain breakdown; when absent the protocol's first chain is used
+//   - one or more dimension columns, named either long (`dailyVolume`) or short (`dv`); only columns valid
+//     for the adapter type (its KEYS_TO_STORE) are kept, everything else is ignored
+export function buildRecordsFromCsv({ csvText, adapterType, protocol }: { csvText: string, adapterType: AdapterType, protocol: any }): CsvBuildResult {
+  const logs: CsvLog[] = []
+  const log = (text: string) => logs.push({ level: 'log', text })
+  const err = (text: string) => logs.push({ level: 'error', text })
+  const records: AdapterRecord2[] = []
+  let skippedRows = 0
+  const done = () => ({ records, logs, skippedRows })
+
+  if (!csvText || !csvText.trim()) {
+    err('CSV is empty - nothing to load')
+    return done()
+  }
+
+  const { KEYS_TO_STORE } = loadAdaptorsData(adapterType)
+  const allowedShortKeys = new Set(Object.keys(KEYS_TO_STORE || {}))
+  if (!allowedShortKeys.size) {
+    err(`No KEYS_TO_STORE found for adapter type "${adapterType}", cannot load CSV`)
+    return done()
+  }
+
+  // accept both long names ('dailyVolume') and short keys ('dv'), plus a short -> long map for messages
+  const longToShort: { [k: string]: string } = {}
+  const shortToLong: { [k: string]: string } = {}
+  const shortKeys = new Set<string>()
+  Object.entries(AdaptorRecordType).forEach(([longName, shortKey]: any) => {
+    longToShort[longName.toLowerCase()] = shortKey
+    shortToLong[shortKey] = longName
+    shortKeys.add(shortKey)
+  })
+  const resolveDimensionKey = (header: string): string | null => {
+    const h = header.trim()
+    if (shortKeys.has(h)) return h
+    return longToShort[h.toLowerCase()] ?? null
+  }
+
+  const defaultChain = (protocol.chains && protocol.chains[0]) || 'unknown'
+
+  const rows = csvText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length && !l.startsWith('#'))
+  if (rows.length < 2) {
+    err('CSV needs a header row and at least one data row')
+    return done()
+  }
+
+  const splitRow = (line: string) => line.split(',').map(c => c.trim())
+  const headers = splitRow(rows[0])
+
+  const dateColIdx = headers.findIndex(h => /^(date|timestamp|time|day|ts)$/i.test(h))
+  if (dateColIdx === -1) {
+    err(`CSV must have a date column (date, timestamp, time, or day). Found headers: ${headers.join(', ')}`)
+    return done()
+  }
+  const chainColIdx = headers.findIndex(h => /^chain$/i.test(h))
+
+  // Keep only columns whose dimension exists in the adapter type's KEYS_TO_STORE; ignore the rest.
+  const dimensionCols: { idx: number, shortKey: string, header: string }[] = []
+  headers.forEach((header, idx) => {
+    if (idx === dateColIdx || idx === chainColIdx) return
+    const shortKey = resolveDimensionKey(header)
+    if (!shortKey) {
+      err(`Ignoring unknown column "${header}" - not a recognised dimension`)
+      return
+    }
+    if (!allowedShortKeys.has(shortKey)) {
+      err(`Ignoring column "${header}" (${shortKey}) - not stored for adapter type "${adapterType}"`)
+      return
+    }
+    dimensionCols.push({ idx, shortKey, header })
+  })
+
+  if (!dimensionCols.length) {
+    err(`No valid dimension columns found for "${adapterType}". Allowed keys: ${[...allowedShortKeys].join(', ')}`)
+    return done()
+  }
+
+  // Warnings computed once, up front, from the adapter config (no DB call). Informational only - they
+  // never skip records.
+
+  // 1. CSV stores raw USD numbers only; token-level breakdowns are not produced from a CSV
+  log(`ℹ️ CSV loading stores raw USD numbers only. Token-breakdown adapters are not yet supported - only aggregated USD values (per chain) will be saved.`)
+
+  // 2. Protocol spans multiple chains but the CSV has no chain column - everything lands on one chain
+  if (chainColIdx === -1 && Array.isArray(protocol.chains) && protocol.chains.length > 1) {
+    err(`⚠️ CSV has no "chain" column, but ${protocol.displayName} has ${protocol.chains.length} chains (${protocol.chains.join(', ')}). All values will be attributed to "${defaultChain}". Add a "chain" column to split values per chain.`)
+  }
+
+  // 3. Dimensions this adapter type supports that the CSV omits - if the adapter normally returns them,
+  //    saving overwrites the record and drops them (e.g. a fees CSV with only dailyFees wipes dailyRevenue).
+  //    Cumulative `total*` types are excluded: they are derived running totals, not CSV inputs.
+  const accumulativeKeys = new Set<string>(Object.values(ACCOMULATIVE_ADAPTOR_TYPE) as string[])
+  const providedShortKeys = new Set(dimensionCols.map((d) => d.shortKey))
+  const missingForType = [...allowedShortKeys].filter((k) => !providedShortKeys.has(k) && !accumulativeKeys.has(k))
+  if (missingForType.length) {
+    const labels = missingForType.map((k) => `${shortToLong[k] ?? k} (${k})`).join(', ')
+    err(`⚠️ "${adapterType}" also supports these dimensions not in your CSV: ${labels}. Saving OVERWRITES the whole record, so any of these the adapter normally returns will be dropped. Add them as columns to keep them.`)
+  }
+
+  const parseNumber = (raw: string | undefined): number | null => {
+    if (raw === undefined || raw === null) return null
+    const cleaned = String(raw).replace(/[$,\s]/g, '')
+    if (cleaned === '') return null
+    return Number(cleaned) // may be NaN, caller checks
+  }
+
+  const parseDate = (raw: string | undefined): number | null => {
+    const v = (raw ?? '').trim()
+    if (!v) return null
+    if (/^\d+$/.test(v)) { // unix seconds or ms
+      let n = Number(v)
+      if (n > 1e12) n = Math.floor(n / 1000)
+      return getTimestampAtStartOfDayUTC(n)
+    }
+    const ms = Date.parse(v.includes('T') ? v : v + 'T00:00:00Z')
+    if (Number.isNaN(ms)) return null
+    return getTimestampAtStartOfDayUTC(Math.floor(ms / 1000))
+  }
+
+  // group rows by start-of-day UTC, summing per chain and across chains
+  const byDate: { [ts: number]: CsvAggregated } = {}
+  for (let r = 1; r < rows.length; r++) {
+    const cols = splitRow(rows[r])
+    const ts = parseDate(cols[dateColIdx])
+    if (ts === null) {
+      err(`Row ${r + 1}: invalid date "${cols[dateColIdx]}", skipping row`)
+      skippedRows++
+      continue
+    }
+    const chain = (chainColIdx !== -1 && cols[chainColIdx]) ? cols[chainColIdx] : defaultChain
+    const agg = byDate[ts] ?? (byDate[ts] = {})
+
+    for (const { idx, shortKey, header } of dimensionCols) {
+      const value = parseNumber(cols[idx])
+      if (value === null) continue // empty cell
+      if (Number.isNaN(value)) {
+        err(`Row ${r + 1}: non-numeric value "${cols[idx]}" for column "${header}", skipping cell`)
+        continue
+      }
+      const record = agg[shortKey] ?? (agg[shortKey] = { value: 0, chains: {} })
+      record.chains[chain] = (record.chains[chain] || 0) + value
+      record.value += value
+    }
+  }
+
+  const dateKeys = Object.keys(byDate).map(Number).sort((a, b) => a - b)
+  for (const ts of dateKeys) {
+    const aggregated = byDate[ts]
+    if (!Object.keys(aggregated).length) continue
+
+    const adapterRecord = AdapterRecord2.formAdaptarRecord2({
+      jsonData: { timestamp: ts, aggregated: aggregated as any },
+      protocolType: protocol.protocolType,
+      adapterType,
+      protocol,
+    })
+    if (!adapterRecord) {
+      err(`Could not build a valid record for ${new Date(ts * 1000).toISOString().slice(0, 10)} - skipping`)
+      continue
+    }
+    records.push(adapterRecord)
+  }
+
+  return done()
+}
+
+// Build records from the CSV and stage them in recordItems for review, so the existing "Save All" flow
+// stores them - exactly the same store path used by the normal adapter-fetch flow.
+async function loadRecordsFromCsv(ws: any, { csvText, adapterType, protocol }: { csvText: string, adapterType: AdapterType, protocol: any }) {
+  const { records, logs, skippedRows } = buildRecordsFromCsv({ csvText, adapterType, protocol })
+
+  logs.forEach(({ level, text }) => level === 'error' ? console.error(text) : console.log(text))
+
+  for (const record of records) {
+    const id = record.getUniqueKey()
+    recordItems[id] = {
+      id,
+      recordV2: record,
+      adapterType,
+      protocolName: protocol.displayName,
+      timeS: record.timeS,
+      storeFunctions: [async () => storeAdapterRecord(record)],
+    }
+  }
+
+  console.log(`Loaded ${records.length} record(s) from CSV for ${protocol.displayName} (${adapterType})${skippedRows ? `, skipped ${skippedRows} invalid row(s)` : ''}. Review below and click "Save All" to store.`)
+  sendWaitingRecords(ws)
+}
+
 export function removeWaitingRecords(ws: any, ids: any) {
   if (Array.isArray(ids))
     ids.forEach((id: any) => delete recordItems[id])
@@ -160,9 +373,8 @@ export async function storeAllWaitingRecords(ws: any) {
     .for(allRecords)
     .process(async ([id, record]: any) => {
       // if (recordItems[id]) delete recordItems[id]  // sometimes users double click or the can trigger this multiple times
-      const { storeRecordV2Function, storeDDBFunctions } = record as any
-      if (storeRecordV2Function) await storeRecordV2Function()
-      if (storeDDBFunctions?.length) await Promise.all(storeDDBFunctions.map((fn: any) => fn()))
+      const { storeFunctions } = record as any
+      if (storeFunctions?.length) await Promise.all(storeFunctions.map((f: any) => f()))
       delete recordItems[id]
     })
 
@@ -202,6 +414,148 @@ function getRecordItem(record: any) {
     })
   } catch (e) {
     console.error('Error parsing record data', e)
+  }
+  return res
+}
+
+// --- Dimension Delete Functionality ---
+
+const deleteRecordsList: any = {}
+
+export async function dimensionsDeleteGetList(ws: any, args: any) {
+  const adapterType = args.adapterType as AdapterType
+  const protocolToRun = args.protocol
+  const fromTimestamp = Number(args.dateFrom)
+  const toTimestamp = Number(args.dateTo)
+
+  if (!Number.isFinite(fromTimestamp) || !Number.isFinite(toTimestamp)) {
+    console.error('Invalid timestamp range: fromTimestamp and toTimestamp must be finite numbers')
+    return
+  }
+
+  if (fromTimestamp > toTimestamp) {
+    console.error('Invalid timestamp range: fromTimestamp must be <= toTimestamp')
+    return
+  }
+
+  const { protocolAdaptors } = loadAdaptorsData(adapterType)
+  const protocol = protocolAdaptors.find((p: any) => p.displayName === protocolToRun || p.module === protocolToRun || p.id === protocolToRun)
+
+  if (!protocol) {
+    console.error(`Protocol "${protocolToRun}" not found for adapter type "${adapterType}"`)
+    return
+  }
+
+  const records = await getDimensionsRecordsInRange({ adapterType, id: protocol.id2, fromTimestamp, toTimestamp })
+
+  console.log('Pulled', records.length, 'dimension records for protocol:', protocol.displayName, 'type:', adapterType, 'from:', new Date(fromTimestamp * 1000).toDateString(), 'to:', new Date(toTimestamp * 1000).toDateString())
+
+  records.forEach((record: any) => {
+    const uniqueId = `${adapterType}#${record.id}#${record.timeS}`
+    deleteRecordsList[uniqueId] = {
+      id: uniqueId,
+      protocolId: record.id,
+      protocolName: protocol.displayName,
+      adapterType,
+      timeS: record.timeS,
+      timestamp: record.timestamp,
+      data: record.data,
+    }
+  })
+
+  sendDimensionsDeleteWaitingRecords(ws)
+}
+
+export async function dimensionsDeleteSelectedRecords(ws: any, ids: any) {
+  await _deleteDimensionRecords(ws, ids)
+}
+
+export async function dimensionsDeleteAllRecords(ws: any) {
+  await _deleteDimensionRecords(ws)
+}
+
+async function _deleteDimensionRecords(ws: any, ids?: any) {
+  if (!ids) ids = Object.keys(deleteRecordsList)
+  if (!ids.length) return
+
+  const validIds = ids.filter((id: string) => deleteRecordsList[id])
+  if (validIds.length === 0) {
+    console.error('No valid records found for deletion')
+    return
+  }
+
+  if (validIds.length !== ids.length) {
+    console.error(`Warning: ${ids.length - validIds.length} invalid IDs were filtered out`)
+  }
+
+  validIds.sort(() => Math.random() - 0.5)
+
+  const { errors } = await PromisePool
+    .withConcurrency(7)
+    .for(validIds)
+    .process(async (id: any) => {
+      const record = deleteRecordsList[id]
+      if (!record) {
+        console.error('Record not found in deleteRecordsList:', id)
+        return
+      }
+
+      const { protocolId, adapterType, timeS, timestamp, data, bl, blc } = record
+
+      try {
+        // TODO: uncomment to enable actual deletion
+        await AdapterRecord2.deleteFromDB({ adapterType, id: protocolId, timeS, timestamp, data, bl, blc })
+        // console.log('[DRY RUN] Would delete dimension record:', adapterType, protocolId, timeS, 'data:', JSON.stringify(record.data?.aggregated ?? {}))
+        delete deleteRecordsList[id]
+      } catch (e) {
+        console.error('Error deleting dimension record:', id, (e as any)?.message || e)
+        throw e
+      }
+    })
+
+  if (errors.length > 0) {
+    console.error('Errors deleting dimension records:', errors.length, errors.map((e: any) => e.message || e))
+  }
+
+  sendDimensionsDeleteWaitingRecords(ws)
+}
+
+export function dimensionsDeleteClearList(ws: any) {
+  console.log('Clearing dimension delete records list', Object.keys(deleteRecordsList).length)
+  Object.keys(deleteRecordsList).forEach((id) => delete deleteRecordsList[id])
+  sendDimensionsDeleteWaitingRecords(ws)
+}
+
+export function sendDimensionsDeleteWaitingRecords(ws: any) {
+  ws.send(JSON.stringify({
+    type: 'dimensions-delete-waiting-records',
+    data: Object.values(deleteRecordsList).map(getDeleteRecordItem),
+  }))
+}
+
+function getDeleteRecordItem(record: any) {
+  const { id, protocolName, timeS, adapterType, data } = record
+  const res: any = {
+    id,
+    protocolName,
+    timeS,
+    adapterType,
+  }
+  try {
+    if (data?.aggregated) {
+      Object.entries(data.aggregated).forEach(([key, d]: any) => {
+        res[key] = humanizeNumber(d.value)
+        res['_' + key] = +d.value
+        if (d.chains) {
+          Object.entries(d.chains).forEach(([chain, value]: any) => {
+            res[`${key}_${chain}`] = humanizeNumber(value)
+            res[`_${key}_${chain}`] = value
+          })
+        }
+      })
+    }
+  } catch (e) {
+    console.error('Error parsing delete record data', e)
   }
   return res
 }

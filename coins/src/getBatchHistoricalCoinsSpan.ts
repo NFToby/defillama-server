@@ -4,10 +4,12 @@ import {
   IResponse,
   errorResponse,
 } from "./utils/shared";
-import { getRecordClosestToTimestamp } from "./utils/shared/getRecordClosestToTimestamp";
+import { getRecordClosestToTimestamp } from "./utils/distressedAwareRecord";
 import { quantisePeriod } from "./utils/timestampUtils";
 import { getBasicCoins } from "./utils/getCoinsUtils";
 import { lowercaseAddress } from "./utils/processCoin";
+
+// WARNING: changing this breaks it
 import { runInPromisePool } from "@defillama/sdk/build/generalUtil";
 
 function generateTimestamps(
@@ -69,7 +71,7 @@ async function fetchDBData(
               prices: [
                 {
                   timestamp: finalCoin.SK,
-                  price: finalCoin.price,
+                  price: Number(finalCoin.price),
                   confidence: coin.confidence,
                 },
               ],
@@ -77,7 +79,7 @@ async function fetchDBData(
           } else {
             response[coinName].prices.push({
               timestamp: finalCoin.SK,
-              price: finalCoin.price,
+              price: Number(finalCoin.price),
                 confidence: coin.confidence,
               });
             }
@@ -128,6 +130,7 @@ const handler = async (event: any): Promise<IResponse> => {
   }
 };
 
-export default wrap(handler);
+// disabled as it is not used by anyone
+// export default wrap(handler);
 
 // // ts-node coins/src/getBatchHistoricalCoinsSpan.ts

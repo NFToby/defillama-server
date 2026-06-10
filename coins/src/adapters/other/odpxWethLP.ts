@@ -2,7 +2,8 @@ import { addToDBWritesList, getTokenAndRedirectData } from "../utils/database";
 import { Write } from "../utils/dbInterfaces";
 import { getTokenInfo } from "../utils/erc20";
 import getBlock from "../utils/block";
-import { call } from "@defillama/sdk/build/abi/index";
+import * as sdk from '@defillama/sdk'
+const { call, } = sdk.api.abi;
 // odpxWETH-USDC
 const chain = "arbitrum";
 const orangeVault = "0xe1B68841E764Cc31be1Eb1e59d156a4ED1217c2C";
@@ -68,31 +69,6 @@ async function contractCalls(
 }
 
 const abi = {
-  balanceOf: {
-    constant: true,
-    inputs: [
-      {
-        name: "_owner",
-        type: "address",
-      },
-    ],
-    name: "balanceOf",
-    outputs: [
-      {
-        name: "balance",
-        type: "uint256",
-      },
-    ],
-    payable: false,
-    type: "function",
-  },
-  convertToAssets: {
-    constant: true,
-    inputs: [{ name: "", type: "uint256" }],
-    name: "convertToAssets",
-    outputs: [{ name: "", type: "uint256" }],
-    payable: false,
-    stateMutability: "view",
-    type: "function",
-  },
-};
+  "balanceOf": "function balanceOf(address _owner) view returns (uint256 balance)",
+  "convertToAssets": "function convertToAssets(uint256) view returns (uint256)"
+} ;

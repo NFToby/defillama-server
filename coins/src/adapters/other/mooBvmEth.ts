@@ -2,7 +2,8 @@ import { addToDBWritesList, getTokenAndRedirectData } from "../utils/database";
 import { Write } from "../utils/dbInterfaces";
 import { getTokenInfo } from "../utils/erc20";
 import getBlock from "../utils/block";
-import { call } from "@defillama/sdk/build/abi/index";
+import * as sdk from '@defillama/sdk'
+const { call, } = sdk.api.abi
 
 // Moo BVM (BVM-ETH)
 const targets = [
@@ -89,42 +90,10 @@ async function contractCalls(
 }
 
 const contractAbi = {
-  reserve0: {
-    constant: true,
-    inputs: [],
-    name: "reserve0",
-    outputs: [{ name: "", type: "uint256" }],
-    payable: false,
-    stateMutability: "view",
-    type: "function",
-  },
-  reserve1: {
-    constant: true,
-    inputs: [],
-    name: "reserve1",
-    outputs: [{ name: "", type: "uint256" }],
-    payable: false,
-    stateMutability: "view",
-    type: "function",
-  },
-  totalSupply: {
-    constant: true,
-    inputs: [],
-    name: "totalSupply",
-    outputs: [{ name: "", type: "uint256" }],
-    payable: false,
-    stateMutability: "view",
-    type: "function",
-  },
-};
+  "reserve0": "uint256:reserve0",
+  "reserve1": "uint256:reserve1",
+  "totalSupply": "uint256:totalSupply"
+}  ;
 const contractAbiBeefy = {
-  getPricePerFullShare: {
-    constant: true,
-    inputs: [],
-    name: "getPricePerFullShare",
-    outputs: [{ name: "", type: "uint256" }],
-    payable: false,
-    stateMutability: "view",
-    type: "function",
-  },
+  "getPricePerFullShare": "uint256:getPricePerFullShare"
 };

@@ -8,6 +8,7 @@ import {
   expectNonNegativeNumber,
 } from '../../utils/testHelpers';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.BRIDGES.BASE_URL);
 
@@ -19,6 +20,10 @@ describe('Bridges API - Bridges List', () => {
   }, 30000);
 
   describe('Basic Response Validation', () => {
+    it('should expose CORS headers', () => {
+      expectCorsHeaders(bridgesResponse);
+    });
+
     it('should return successful response with valid structure', () => {
       expectSuccessfulResponse(bridgesResponse);
       expect(isBridgesListResponse(bridgesResponse.data)).toBe(true);
@@ -189,7 +194,10 @@ describe('Bridges API - Bridges List', () => {
       const bridgesWithBothVolumes = bridgesResponse.data.bridges
         .filter((bridge) => 
           bridge.monthlyVolume !== null && bridge.monthlyVolume !== undefined &&
-          bridge.weeklyVolume !== null && bridge.weeklyVolume !== undefined
+          bridge.weeklyVolume !== null && bridge.weeklyVolume !== undefined &&
+          bridge.weeklyVolume > 0 && // Avoid division by zero
+          typeof bridge.monthlyVolume === 'number' &&
+          typeof bridge.weeklyVolume === 'number'
         )
         .slice(0, 20);
 

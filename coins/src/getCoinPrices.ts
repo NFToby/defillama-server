@@ -1,8 +1,9 @@
 import { successResponse, wrap, IResponse, errorResponse } from "./utils/shared";
 import ddb from "./utils/shared/dynamodb";
 import parseRequestBody from "./utils/shared/parseRequestBody";
-import getRecordClosestToTimestamp from "./utils/shared/getRecordClosestToTimestamp";
+import { getRecordClosestToTimestamp } from "./utils/distressedAwareRecord";
 import { coinToPK, DAY } from "./utils/processCoin";
+import { isDistressedAssetPK } from "./utils/isDistressed";
 
 const handler = async (
     event: AWSLambda.APIGatewayEvent
@@ -17,12 +18,12 @@ const handler = async (
     if (coin === undefined) {
         return errorResponse({ message: "Coin doesn't exist" })
     }
-
-    if (typeof coin.decimals === 'string' && !isNaN(Number(coin.decimals)))
-        coin.decimals = Number(coin.decimals);
+    // Distressed contracts read $0: ignore any coingecko redirect on this PK so
+    // the per-timestamp lookups resolve against the asset# PK (-> $0).
+    if (isDistressedAssetPK(coin.PK)) coin.redirect = undefined;
 
     const response = {
-        decimals: coin.decimals,
+        decimals: coin.decimals == null ? undefined : Number(coin.decimals),
         symbol: coin.symbol,
         prices: [] as {
             timestamp: number,
@@ -31,11 +32,11 @@ const handler = async (
     }
     await Promise.all(timestampsRequested.map(async timestampRequested => {
         const finalCoin = await getRecordClosestToTimestamp(coin.redirect ?? coin.PK, timestampRequested, DAY / 2);
-        if (finalCoin.SK === undefined) {
+        if (finalCoin?.SK === undefined) {
             return
         }
         response.prices.push({
-            price: finalCoin.price,
+            price: Number(finalCoin.price),
             timestamp: finalCoin.SK
         });
     }))

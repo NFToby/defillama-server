@@ -10,6 +10,7 @@ import {
 } from '../../utils/testHelpers';
 import { ApiResponse } from '../../utils/config/apiClient';
 import { validate } from '../../utils/validation';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.PERPS.BASE_URL);
 
@@ -23,6 +24,10 @@ describe('Perps API - Open Interest', () => {
   }, 60000);
 
   describe('Basic Response Validation', () => {
+    it('should expose CORS headers', () => {
+      expectCorsHeaders(openInterestResponse);
+    });
+
     it('should return successful response with valid structure', () => {
       expectSuccessfulResponse(openInterestResponse);
       expect(isOpenInterestResponse(openInterestResponse.data)).toBe(true);
@@ -97,7 +102,17 @@ describe('Perps API - Open Interest', () => {
           expectValidNumber(data.total7d);
           expectNonNegativeNumber(data.total7d);
         }
-        
+
+        if (data.total1y !== undefined && data.total1y !== null) {
+          expectValidNumber(data.total1y);
+          expectNonNegativeNumber(data.total1y);
+        }
+
+        if (data.annualized1y !== undefined && data.annualized1y !== null) {
+          expectValidNumber(data.annualized1y);
+          expectNonNegativeNumber(data.annualized1y);
+        }
+
         if (data.totalAllTime !== undefined && data.totalAllTime !== null) {
           expectValidNumber(data.totalAllTime);
           expectNonNegativeNumber(data.totalAllTime);

@@ -3,7 +3,7 @@ import { successResponse, wrap, IResponse } from "./utils/shared";
 import { getBasicCoins } from "./utils/getCoinsUtils";
 import { getTimestampsArray, quantisePeriod } from "./utils/timestampUtils";
 import { getCurrentUnixTimestamp } from "./utils/date";
-import getRecordClosestToTimestamp from "./utils/shared/getRecordClosestToTimestamp";
+import { getRecordClosestToTimestamp } from "./utils/distressedAwareRecord";
 
 type QueryParams = {
   coins: string[];
@@ -66,12 +66,12 @@ async function fetchDBData(
             response[coinName] = {
               symbol: coin.symbol,
               confidence: coin.confidence,
-              prices: [{ timestamp: finalCoin.SK, price: finalCoin.price }],
+              prices: [{ timestamp: finalCoin.SK, price: Number(finalCoin.price) }],
             };
           } else {
             response[coinName].prices.push({
               timestamp: finalCoin.SK,
-              price: finalCoin.price,
+              price: Number(finalCoin.price),
             });
           }
         });

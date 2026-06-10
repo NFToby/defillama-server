@@ -1,6 +1,7 @@
 import { addToDBWritesList } from "../../utils/database";
 import { Write } from "../../utils/dbInterfaces";
-import { call } from "@defillama/sdk/build/abi";
+import * as sdk from '@defillama/sdk'
+const { call, } = sdk.api.abi
 import getBlock from "../../utils/block";
 
 export const STABLES: Record<
@@ -54,15 +55,4 @@ async function getPrice(
   return output / 10 ** 8;
 }
 
-const abi = {
-  name: "latestAnswer",
-  outputs: [
-    {
-      internalType: "int256",
-      name: "",
-      type: "int256",
-    },
-  ],
-  stateMutability: "view",
-  type: "function",
-};
+const abi = "int256:latestAnswer";

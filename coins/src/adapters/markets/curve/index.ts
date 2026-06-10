@@ -48,14 +48,14 @@ export function curve(timestamp: number = 0) {
       "0x5bA541585D6297B756F08B7c61a7E37752123B4F",
       "0x6951bDC4734b9f7F3E1B74afeBC670c736A0EDB6",
       "0x30bf3E17CAD0baF1d6B64079Ec219808d2708fEb",
-      "0x5a6A4D54456819380173272A5E8E9B9904BdF41B", 
-      "0xC32B0Cf36e06c790A568667A17DE80cba95A5Aad", 
-      "0x4b5E827F4C0a1042272a11857a355dA1F4Ceebae", 
-      "0x64273624eb57c5cA961d366CBF3968e760Bf0452", 
-      "0x765Cbd88947fcBc5df1F763d02E384B0a2DD285E", 
+      "0xC32B0Cf36e06c790A568667A17DE80cba95A5Aad",
+      "0x4b5E827F4C0a1042272a11857a355dA1F4Ceebae",
+      "0x64273624eb57c5cA961d366CBF3968e760Bf0452",
+      "0x765Cbd88947fcBc5df1F763d02E384B0a2DD285E",
       "0x2c7A1b4950Fe369e79fB3471284d4a4E66fbEA76",
-      "0x46f27BD3eC8f8D602F7ce85D312F4387FBdA7b16", 
-      "0x6C5Ff8DCe52BE77b4eCE6B51996018f0C1713bA9"
+      "0x46f27BD3eC8f8D602F7ce85D312F4387FBdA7b16",
+      "0x6C5Ff8DCe52BE77b4eCE6B51996018f0C1713bA9",
+      "0xe1b96555bbeca40e583bbb41a11c68ca4706a414",
     ]),
     getGaugePrices("ethereum", timestamp),
   ]);
@@ -141,7 +141,7 @@ export function curve5(timestamp: number = 0) {
 export function curve6(timestamp: number = 0) {
   return Promise.all([
     getTokenPrices2("base", [], timestamp, "eth-custom", [
-      "0xd6c283655B42FA0eb2685F7AB819784F071459dc", 
+      "0xd6c283655B42FA0eb2685F7AB819784F071459dc",
       "0xf6c5f01c7f3148891ad0e19df78743d31e390d1f",
       "0x6e53131f68a034873b6bfa15502af094ef0c5854",
       "0x6dfe79cece4f64c1a34f48cf5802492ab595257e",
@@ -156,6 +156,7 @@ export function curve6(timestamp: number = 0) {
       "0x5ab01ee6208596f2204b85bdfa39d34c2add98f6",
       "0x02d55af4813a3a6826ef185935e4fc1defa45fb0",
       "0x798d81d60966d2e909468d87e7e4b6a8dafb1c36",
+      "0x11C1fBd4b3De66bC0565779b35171a6CF3E71f59"
     ]),
   ]);
 }
@@ -176,9 +177,12 @@ export function curve9(timestamp: number = 0) {
 }
 export function curve10(timestamp: number = 0) {
   return Promise.all([
-    getTokenPrices2("bsc", defaultRegistries, timestamp),
+    // getTokenPrices2("bsc", defaultRegistries, timestamp),
     getTokenPrices2("bsc", [], timestamp, "eth-custom", [
       "0xa5e0e46462970c9ee8c2ecadcde254c483748ec4",
+      "0xB84637aB9Be835580821A67823f414FFd0bbf625",
+      "0xE6e2905F54BAF7625F4943B74c50338362741Cd4",
+      "0xed55ff3fcb43249838a04a9707ff2c4b825507ff",
     ]),
   ]);
 }
@@ -202,7 +206,7 @@ export function curve14(timestamp: number = 0) {
     getTokenPrices2("fraxtal", defaultRegistries, timestamp),
     getGaugePrices("fraxtal", timestamp),
     getTokenPrices2("fraxtal", [], timestamp, "eth-custom", [
-      '0x15d1ed4418da1f268bcad5ba7c8d06bb3c3081ed', 
+      '0x15d1ed4418da1f268bcad5ba7c8d06bb3c3081ed',
       '0x4cfc391d75c43cf1bdb368e8bf680aed1228df39',
       '0xee454138083b9b9714cac3c7cf12560248d76d6b'
     ]),
@@ -234,7 +238,8 @@ export function curve17(timestamp: number = 0) {
 export function curve18(timestamp: number = 0) {
   return Promise.all([
     getTokenPrices2("monad", [], timestamp, "eth-custom", [
-      "0x942644106B073E30D72c2C5D7529D5C296ea91ab"
+      "0x942644106B073E30D72c2C5D7529D5C296ea91ab",
+      "0xD2634E05EbEd90Bd0a6c0E93d48d7bd8036653B1"
     ]),
   ]);
 }
@@ -257,6 +262,6 @@ export const adapters = {
   curve14,
   curve15,
   curve16,
-  curve17, 
+  curve17,
   curve18
 };

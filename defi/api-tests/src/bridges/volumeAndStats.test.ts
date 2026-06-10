@@ -1,11 +1,21 @@
 import { createApiClient } from '../../utils/config/apiClient';
 import { endpoints } from '../../utils/config/endpoints';
 import { expectSuccessfulResponse } from '../../utils/testHelpers';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.BRIDGES.BASE_URL);
 
 describe('Bridges API - Volume and Stats', () => {
   const testChains = ['Ethereum', 'arbitrum', 'optimism'];
+
+  let corsResponse: any;
+  beforeAll(async () => {
+    corsResponse = await apiClient.get(endpoints.BRIDGES.BRIDGE_VOLUME('Ethereum'));
+  }, 30000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(corsResponse);
+  });
 
   describe('Bridge Volume by Chain', () => {
     testChains.forEach((chain) => {
@@ -94,7 +104,7 @@ describe('Bridges API - Volume and Stats', () => {
       responses.forEach((response, index) => {
         expect(response).toBeDefined();
         expect(response.status).toBeDefined();
-        console.log(`Bridge day stats for ${testChains[index]}: status ${response.status}`);
+        // console.log(`Bridge day stats for ${testChains[index]}: status ${response.status}`);
       });
     }, 60000);
 
@@ -154,7 +164,7 @@ describe('Bridges API - Volume and Stats', () => {
 
         it('should log transaction count if array', () => {
           if (response.status >= 200 && response.status < 300 && Array.isArray(response.data)) {
-            console.log(`Bridge ${bridgeId} has ${response.data.length} transactions`);
+            // console.log(`Bridge ${bridgeId} has ${response.data.length} transactions`);
             expect(response.data.length).toBeGreaterThanOrEqual(0);
           }
         });
@@ -173,20 +183,20 @@ describe('Bridges API - Volume and Stats', () => {
     it('should have correct bridge volume path', () => {
       const chain = 'ethereum';
       const path = endpoints.BRIDGES.BRIDGE_VOLUME(chain);
-      expect(path).toBe(`/bridgevolume/${chain}`);
+      expect(path).toBe(`/bridges/bridgevolume/${chain}`);
     });
 
     it('should have correct bridge day stats path', () => {
       const timestamp = 1234567890;
       const chain = 'ethereum';
       const path = endpoints.BRIDGES.BRIDGE_DAY_STATS(timestamp, chain);
-      expect(path).toBe(`/bridgedaystats/${timestamp}/${chain}`);
+      expect(path).toBe(`/bridges/bridgedaystats/${timestamp}/${chain}`);
     });
 
     it('should have correct transactions path', () => {
       const id = '123';
       const path = endpoints.BRIDGES.TRANSACTIONS(id);
-      expect(path).toBe(`/transactions/${id}`);
+      expect(path).toBe(`/bridges/transactions/${id}`);
     });
   });
 });

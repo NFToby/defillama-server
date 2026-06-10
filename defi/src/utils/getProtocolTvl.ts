@@ -2,22 +2,22 @@ import { _InternalProtocolMetadataMap, Protocol, protocolsById, } from "../proto
 import type { ITvlsWithChangesByChain, ProtocolTvls } from "../types";
 import { secondsInDay, secondsInMonth, secondsInWeek } from "./date";
 import { excludeProtocolInCharts, } from "./excludeProtocols";
-import { getLastRecord, hourlyTvl, hourlyUsdTokensTvl } from "./getLastRecord";
+import { getLastRecord, hourlyTvl, hourlyUsdTokensTvl, dailyUsdTokensTvl } from "./getLastRecord";
 import {
   extraSections,
   getChainDisplayName,
   nonChains,
 } from "./normalizeChain";
-import getTVLOfRecordClosestToTimestamp from "./shared/getRecordClosestToTimestamp";
+import {getRecordClosestToTimestamp} from "./shared/getRecordClosestToTimestamp";
 
 const _getLastHourlyRecord = (protocol: Protocol) => getLastRecord(hourlyTvl(protocol.id))
 const _getLastHourlyTokensUsd = (protocol: Protocol) => getLastRecord(hourlyUsdTokensTvl(protocol.id))
-const _getYesterdayTokensUsd = (protocol: Protocol) => getTVLOfRecordClosestToTimestamp(hourlyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInDay, secondsInDay)
-const _getLastWeekTokensUsd = (protocol: Protocol) => getTVLOfRecordClosestToTimestamp(hourlyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInWeek, secondsInDay)
-const _getLastMonthTokensUsd = (protocol: Protocol) => getTVLOfRecordClosestToTimestamp(hourlyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInMonth, secondsInDay)
-const _getYesterdayTvl = (protocol: Protocol) => getTVLOfRecordClosestToTimestamp(hourlyTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInDay, secondsInDay)
-const _getLastWeekTvl = (protocol: Protocol) => getTVLOfRecordClosestToTimestamp(hourlyTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInWeek, secondsInDay)
-const _getLastMonthTvl = (protocol: Protocol) => getTVLOfRecordClosestToTimestamp(hourlyTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInMonth, secondsInDay)
+const _getYesterdayTokensUsd = (protocol: Protocol) => getRecordClosestToTimestamp(hourlyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInDay, secondsInDay)
+const _getLastWeekTokensUsd = (protocol: Protocol) => getRecordClosestToTimestamp(hourlyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInWeek, secondsInDay).then((r: any) => r?.SK !== undefined ? r : getRecordClosestToTimestamp(dailyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInWeek, secondsInDay * 1.5))
+const _getLastMonthTokensUsd = (protocol: Protocol) => getRecordClosestToTimestamp(hourlyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInMonth, secondsInDay).then((r: any) => r?.SK !== undefined ? r : getRecordClosestToTimestamp(dailyUsdTokensTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInMonth, secondsInDay * 1.5))
+const _getYesterdayTvl = (protocol: Protocol) => getRecordClosestToTimestamp(hourlyTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInDay, secondsInDay)
+const _getLastWeekTvl = (protocol: Protocol) => getRecordClosestToTimestamp(hourlyTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInWeek, secondsInDay)
+const _getLastMonthTvl = (protocol: Protocol) => getRecordClosestToTimestamp(hourlyTvl(protocol.id), Math.round(Date.now() / 1000) - secondsInMonth, secondsInDay)
 
 const includeSection = (chainDisplayName: string) => !extraSections.includes(chainDisplayName) && !chainDisplayName.includes("-")
 
@@ -48,6 +48,10 @@ export async function getProtocolTvl(
 
   const { category, isLiquidStaking, isDoublecounted } = pMetadata;
 
+  if (protocol.module === "dummy.js") {
+    return { tvl, tvlPrevDay, tvlPrevWeek, tvlPrevMonth, chainTvls };
+  }
+
   try {
     const [
       lastRecord,
@@ -73,9 +77,9 @@ export async function getProtocolTvl(
 
         if (chain === "tvl") {
           tvl = chainTvl;
-          tvlPrevDay = previousDayRecord[chain] || null;
-          tvlPrevWeek = previousWeekRecord[chain] || null;
-          tvlPrevMonth = previousMonthRecord[chain] || null;
+          tvlPrevDay = previousDayRecord?.[chain] || null;
+          tvlPrevWeek = previousWeekRecord?.[chain] || null;
+          tvlPrevMonth = previousMonthRecord?.[chain] || null;
 
           if (!excludeProtocolInCharts(category)) {
             if (isDoublecounted) {
@@ -109,9 +113,9 @@ export async function getProtocolTvl(
           const chainDisplayName = getChainDisplayName(chain, useNewChainNames);
           chainTvls[chainDisplayName] = {
             tvl: chainTvl,
-            tvlPrevDay: previousDayRecord[chain] || null,
-            tvlPrevWeek: previousWeekRecord[chain] || null,
-            tvlPrevMonth: previousMonthRecord[chain] || null,
+            tvlPrevDay: previousDayRecord?.[chain] || null,
+            tvlPrevWeek: previousWeekRecord?.[chain] || null,
+            tvlPrevMonth: previousMonthRecord?.[chain] || null,
           };
 
           if (
@@ -121,27 +125,27 @@ export async function getProtocolTvl(
             if (isDoublecounted) {
               chainTvls[`${chainDisplayName}-doublecounted`] = {
                 tvl: chainTvl,
-                tvlPrevDay: previousDayRecord[chain] || null,
-                tvlPrevWeek: previousWeekRecord[chain] || null,
-                tvlPrevMonth: previousMonthRecord[chain] || null,
+                tvlPrevDay: previousDayRecord?.[chain] || null,
+                tvlPrevWeek: previousWeekRecord?.[chain] || null,
+                tvlPrevMonth: previousMonthRecord?.[chain] || null,
               };
             }
 
             if (isLiquidStaking) {
               chainTvls[`${chainDisplayName}-liquidstaking`] = {
                 tvl: chainTvl,
-                tvlPrevDay: previousDayRecord[chain] || null,
-                tvlPrevWeek: previousWeekRecord[chain] || null,
-                tvlPrevMonth: previousMonthRecord[chain] || null,
+                tvlPrevDay: previousDayRecord?.[chain] || null,
+                tvlPrevWeek: previousWeekRecord?.[chain] || null,
+                tvlPrevMonth: previousMonthRecord?.[chain] || null,
               };
             }
 
             if (isLiquidStaking && isDoublecounted) {
               chainTvls[`${chainDisplayName}-dcAndLsOverlap`] = {
                 tvl: chainTvl,
-                tvlPrevDay: previousDayRecord[chain] || null,
-                tvlPrevWeek: previousWeekRecord[chain] || null,
-                tvlPrevMonth: previousMonthRecord[chain] || null,
+                tvlPrevDay: previousDayRecord?.[chain] || null,
+                tvlPrevWeek: previousWeekRecord?.[chain] || null,
+                tvlPrevMonth: previousMonthRecord?.[chain] || null,
               };
             }
           }
@@ -179,16 +183,15 @@ export async function getProtocolTvl(
         }
       });
 
-      const chainsLength = Object.keys(chainTvls).length;
+      let chainsLength = 0;
+      let allTvlsAreAddl = true;
 
-      let allTvlsAreAddl = false;
-
-      Object.keys(chainTvls).forEach((type) => {
-        allTvlsAreAddl =
-          type === "doublecounted" ||
-          type === "liquidstaking" ||
-          type === "dcAndLsOverlap";
-      });
+      for (const type in chainTvls) {
+        chainsLength += 1;
+        if (type !== "doublecounted" && type !== "liquidstaking" && type !== "dcAndLsOverlap") {
+          allTvlsAreAddl = false;
+        }
+      }
 
       if (chainsLength === 0 || (chainsLength <= 3 && allTvlsAreAddl)) {
         // let defaultChain = protocol.chains[0] ?? protocolsById[protocol.id]?.chains[0] ?? protocolsById[protocol.id]?.chain

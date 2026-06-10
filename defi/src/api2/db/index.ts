@@ -107,7 +107,6 @@ async function withPgRetries<T>(fn: () => Promise<T>, retries = 2, baseDelayMs =
 }
 
 let sequelize: Sequelize | null = null
-let mSequalize: Sequelize
 
 async function initializeTVLCacheDB({
   isApi2Server = false,
@@ -145,35 +144,16 @@ async function initializeTVLCacheDB({
         evict: 1000, // how often to run eviction checks
       }
 
-    const metricsDbOptions = {
-      host: ENV.metrics_host,
-      port: ENV.metrics_port,
-      username: ENV.metrics_user,
-      password: ENV.metrics_password,
-      database: ENV.metrics_db_name,
-      dialect: 'postgres',
-      logging: (msg: string) => {
-        if (msg.includes('ERROR')) { // Log only error messages
-          console.error(msg);
-        }
-      },
-    }
-
     if (ENV.isCoolifyTask) {
       if (ENV.internalHost) {
         dbOptions.host = ENV.internalHost
         delete dbOptions.port
       }
-      // metricsDbOptions.host = ENV.metrics_internalHost
-      // delete metricsDbOptions.port
     }
 
     sequelize = new Sequelize(dbOptions as any);
-    if (metricsDbOptions.host)
-      mSequalize = new Sequelize(metricsDbOptions as any);
-    initializeTables(sequelize, mSequalize)
+    initializeTables(sequelize)
     // await sequelize.sync() // needed only for table creation/update
-    // await mSequalize.sync() // needed only for table creation/update
     log('Database connection established.')
   }
 }
@@ -190,6 +170,16 @@ async function _getAllProtocolItems(ddbPKFunction: Function, protocolId: string,
   })
   items.forEach((i: any) => i.data.SK = i.timestamp)
   return items.map((i: any) => i.data)
+}
+
+async function _getAllItemsAtTimeS(ddbPKFunction: Function, timestamp: number) {
+  const table = getTVLCacheTable(ddbPKFunction)
+  const timeS = new Date(timestamp * 1000).toISOString().slice(0, 10);
+  const items = await table.sequelize!.query(
+    `SELECT id, "data", "timeS" FROM "${table.getTableName()}" WHERE "timeS" = '${timeS}' ORDER BY id`,
+    { type: QueryTypes.SELECT }
+  )
+  return items
 }
 
 async function _getLatestProtocolItem(ddbPKFunction: Function, protocolId: string) {
@@ -465,6 +455,7 @@ const saveProtocolItem = callWrapper(_saveProtocolItem)
 const getProtocolItems = callWrapper(_getProtocolItems)
 const getLatestProtocolItems = callWrapper(_getLatestProtocolItems)
 const getInflowRecords = callWrapper(_getInflowRecords)
+const getAllItemsAtTimeS = callWrapper(_getAllItemsAtTimeS)
 
 function getPGConnection() {
   return sequelize
@@ -473,7 +464,7 @@ function getPGConnection() {
 export {
   closeConnection, deleteFromPGCache, deleteProtocolItems, getAllProtocolItems,
   getClosestProtocolItem, getDailyTvlCacheId, getDimensionsUpdatedRecordsCount, getHourlyTvlUpdatedRecordsCount, getLatestProtocolItem, getLatestProtocolItems, getPGConnection, getProtocolItems, getTweetsPulledCount, initializeTVLCacheDB, readFromPGCache, saveProtocolItem, sequelize, TABLES, writeToPGCache,
-  getInflowRecords,
+  getInflowRecords, getAllItemsAtTimeS,
 }
 
 // Add a process exit hook to close the database connection

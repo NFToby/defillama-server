@@ -10,7 +10,7 @@ import {
 } from "../utils/date";
 import { getLastRecord, hourlyTvl, dailyTvl } from "../utils/getLastRecord";
 import { reportError } from "../utils/error";
-import getRecordClosestToTimestamp from "../utils/shared/getRecordClosestToTimestamp";
+import { getRecordClosestToTimestamp } from "../utils/shared/getRecordClosestToTimestamp";
 import { TokensValueLocked, tvlsObject } from "../types";
 import { util } from "@defillama/sdk";
 import { sendMessage } from "../utils/discord";
@@ -26,7 +26,7 @@ async function getTVLOfRecordClosestToTimestamp(
   timestamp: number,
   searchWidth: number) {
   const record = await getRecordClosestToTimestamp(PK, timestamp, searchWidth)
-  if (record.SK === undefined) {
+  if (record?.SK === undefined) {
     return {
       SK: undefined,
       tvl: 0
@@ -55,27 +55,11 @@ export default async function (
         tvl: 0,
       }
   );
-  const lastDailyTVLRecord = getTVLOfRecordClosestToTimestamp(
-    hourlyPK,
-    unixTimestamp - secondsInDay,
-    secondsBetweenCallsExtra
-  );
-  const lastWeeklyTVLRecord = getTVLOfRecordClosestToTimestamp(
-    hourlyPK,
-    unixTimestamp - secondsInWeek,
-    secondsBetweenCallsExtra
-  );
+  const lastDailyTVLRecord = getTVLOfRecordClosestToTimestamp(hourlyPK, unixTimestamp - secondsInDay, secondsBetweenCallsExtra);
+  const lastWeeklyTVLRecord = getTVLOfRecordClosestToTimestamp(hourlyPK, unixTimestamp - secondsInWeek, secondsBetweenCallsExtra);
   const dailyPK = dailyTvl(protocol.id);
-  const dayDailyTvlRecord = getTVLOfRecordClosestToTimestamp(
-    dailyPK,
-    unixTimestamp - secondsInDay,
-    secondsInDay
-  );
-  const weekDailyTvlRecord = getTVLOfRecordClosestToTimestamp(
-    dailyPK,
-    unixTimestamp - secondsInWeek,
-    secondsInDay
-  );
+  const dayDailyTvlRecord = getTVLOfRecordClosestToTimestamp(dailyPK, unixTimestamp - secondsInDay, secondsInDay);
+  const weekDailyTvlRecord = getTVLOfRecordClosestToTimestamp(dailyPK, unixTimestamp - secondsInWeek, secondsInDay);
 
   const lastHourlyTVLObject = await lastHourlyTVLRecord;
 
@@ -102,7 +86,13 @@ export default async function (
           }
       })
 
-      if (currentTvl < 2e12) // less than 2 trillion
+
+      let tvlToCompareAgainst = await lastWeeklyTVLRecord;
+      let lastWeekTvlValue = 0
+      if (tvlToCompareAgainst.SK !== undefined) 
+        lastWeekTvlValue = calculateTVLWithAllExtraSections(tvlToCompareAgainst)
+
+      if (currentTvl < 2e12 || lastWeekTvlValue < 2e7) // less than 2 trillion and last week less than 20 million
         await sendMessage(errorMessage, process.env.TEAM_WEBHOOK!)
       throw new Error(errorMessage)
     }

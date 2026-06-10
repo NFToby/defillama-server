@@ -2,7 +2,8 @@ import { addToDBWritesList, getTokenAndRedirectData } from "../utils/database";
 import { Write } from "../utils/dbInterfaces";
 import { getTokenInfo } from "../utils/erc20";
 import getBlock from "../utils/block";
-import { call } from "@defillama/sdk/build/abi/index";
+import * as sdk from '@defillama/sdk'
+const { call, } = sdk.api.abi
 
 const teahouse_vault = "0xB38e48B8Bc33CD65551BdaC8d954801D56625eeC";
 const chain = "arbitrum";
@@ -60,22 +61,6 @@ async function contractCalls(
 }
 
 const contractAbi = {
-  estimatedValueInToken0: {
-    constant: true,
-    inputs: [],
-    name: "estimatedValueInToken0",
-    outputs: [{ name: "", type: "uint256" }],
-    payable: false,
-    stateMutability: "view",
-    type: "function",
-  },
-  totalSupply: {
-    constant: true,
-    inputs: [],
-    name: "totalSupply",
-    outputs: [{ name: "", type: "uint256" }],
-    payable: false,
-    stateMutability: "view",
-    type: "function",
-  },
-};
+  "estimatedValueInToken0": "uint256:estimatedValueInToken0",
+  "totalSupply": "uint256:totalSupply"
+}   

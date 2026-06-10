@@ -2,7 +2,8 @@ import { addToDBWritesList, getTokenAndRedirectData } from "../utils/database";
 import { Write } from "../utils/dbInterfaces";
 import { getTokenInfo } from "../utils/erc20";
 import getBlock from "../utils/block";
-import { call } from "@defillama/sdk/build/abi/index";
+import * as sdk from '@defillama/sdk'
+const { call, } = sdk.api.abi
 const chain = "arbitrum";
 
 const name = "WBTC Lend WBTC-USDC GMX";
@@ -51,17 +52,5 @@ async function contractCalls(
 }
 
 const abi = {
-  lvTokenValue: {
-    inputs: [],
-    name: "lvTokenValue",
-    outputs: [
-      {
-        internalType: "uint256",
-        name: "",
-        type: "uint256",
-      },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
+  lvTokenValue:  'uint256:lvTokenValue',
 };

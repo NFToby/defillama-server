@@ -7,12 +7,18 @@ import {
   Table,
   Input,
   Flex,
+  Modal,
+  Tag,
+  Space,
+  Collapse,
+  Alert,
 } from 'antd';
-import { PlayCircleOutlined, ClearOutlined, MoonOutlined, SaveOutlined, LineChartOutlined, DeleteOutlined, ApiOutlined, LockOutlined, EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ClearOutlined, MoonOutlined, SaveOutlined, LineChartOutlined, DeleteOutlined, ApiOutlined, LockOutlined, EyeInvisibleOutlined, EyeOutlined, ExclamationCircleOutlined, CheckOutlined, CloseOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 import './App.css';
 import { Line } from '@ant-design/plots';
+import { ApiTestForm, parseAnsiToHtml } from './ApiTestTab.tsx';
 
 const { Content, } = Layout;
 const { Text } = Typography;
@@ -34,12 +40,20 @@ const App = () => {
       adapterTypeChoices: { fees: [] },
     },
     tvlProtocolList: [],
+    tvlProtocolRefillability: null,
+    apiTestFormChoices: {
+      categories: ['all', 'tvl', 'fees', 'stablecoins', 'yields', 'volumes', 'bridges'],
+      testFilesByCategory: {},
+      testNamesByFile: {},
+    },
   });
 
 
   // dimensions tab
   const [dimensionRefillForm] = Form.useForm();
   const dimRefillOnlyMissing = Form.useWatch('onlyMissing', dimensionRefillForm);
+  const dimRefillDelayEnabled = Form.useWatch('delayEnabled', dimensionRefillForm);
+  const dimRefillLoadFromCsv = Form.useWatch('loadFromCsv', dimensionRefillForm);
 
   const [adapterTypes, setAdapterTypes] = useState([]);
   const [dimensionRefillProtocols, setDimensionRefillProtocols] = useState([]);
@@ -50,7 +64,16 @@ const App = () => {
   const [waitingRecordsSelectedChartColumn, setWaitingRecordsSelectedChartColumn] = useState('');
   const [activeTabKey, setActiveTabKey] = useState('dimensions');
 
-
+  // dimensions delete
+  const [dimDeleteWaitingRecords, setDimDeleteWaitingRecords] = useState([]);
+  const [dimDeleteWaitingRecordsShowChainColumns, setDimDeleteWaitingRecordsShowChainColumns] = useState(false);
+  const [dimDeleteWaitingRecordsDeletableIds, setDimDeleteWaitingRecordsDeletableIds] = useState([]);
+  const [dimDeleteWaitingRecordsShowChart, setDimDeleteWaitingRecordsShowChart] = useState(true);
+  const [dimDeleteWaitingRecordsSelectedChartColumn, setDimDeleteWaitingRecordsSelectedChartColumn] = useState('');
+  const [dimDeleteAction, setDimDeleteAction] = useState(false);
+  const [dimDeleteConfirmModalOpen, setDimDeleteConfirmModalOpen] = useState(false);
+  const [dimDeleteConfirmText, setDimDeleteConfirmText] = useState('');
+  const [dimDeletePendingIds, setDimDeletePendingIds] = useState([]);
 
   // tvl tab
   const [tvlForm] = Form.useForm();
@@ -73,6 +96,31 @@ const App = () => {
   // misc tab
   const [miscForm] = Form.useForm();
   const [miscOutputTableData, setMiscOutputTableData] = useState({});
+  const [apiTestRunning, setApiTestRunning] = useState(false);
+
+  // spikes tab
+  const [spikesData, setSpikesData] = useState([]);
+  const [spikesFilterResolved, setSpikesFilterResolved] = useState(false);
+  const [spikesEditingComment, setSpikesEditingComment] = useState(null);
+  const [spikesCommentValue, setSpikesCommentValue] = useState('');
+  const [spikesProtocolFilter, setSpikesProtocolFilter] = useState('');
+  const [spikesWriteToEs, setSpikesWriteToEs] = useState(false);
+  const [spikesSelectedRowKeys, setSpikesSelectedRowKeys] = useState([]);
+  const [spikesBulkComment, setSpikesBulkComment] = useState('');
+  const [spikesBulkAssigned, setSpikesBulkAssigned] = useState('');
+  const [spikesEditingAssigned, setSpikesEditingAssigned] = useState(null);
+  const [spikesAssignedValue, setSpikesAssignedValue] = useState('');
+  const [spikesMinChangeValue, setSpikesMinChangeValue] = useState(0);
+  const [spikesMinChangePct, setSpikesMinChangePct] = useState(0);
+  const [spikesDateRange, setSpikesDateRange] = useState(null);
+  const [spikesExcludedCategories, setSpikesExcludedCategories] = useState([])
+  const [spikesShowNonRefillable, setSpikesShowNonRefillable] = useState(false);
+  const [spikesTableState, setSpikesTableState] = useState({
+    pagination: { current: 1, pageSize: 100 },
+    filters: {},
+    sorter: { columnKey: 'start', order: 'descend' },
+  });
+  const [tvlSubTab, setTvlSubTab] = useState('refill');
 
   function addWebSocketConnection() {
     try {
@@ -142,6 +190,9 @@ const App = () => {
         case 'waiting-records':
           setDimRefillWaitingRecords(data.data);
           break;
+        case 'dimensions-delete-waiting-records':
+          setDimDeleteWaitingRecords(data.data);
+          break;
 
         // tvl tab
         case 'tvl-store-waiting-records':
@@ -155,6 +206,25 @@ const App = () => {
         case 'get-dim-protocols-missing-metrics-response':
         case 'get-fee-chart-default-view-response':
           setMiscOutputTableData(data);
+          break;
+        case 'api-test-output':
+          setOutput((prev) => prev + data.content);
+          if (outputRef.current) {
+            outputRef.current.scrollTop = outputRef.current.scrollHeight;
+          }
+          break;
+        case 'api-test-summary':
+          setApiTestRunning(false);
+          break;
+        case 'api-test-error':
+          setOutput((prev) => prev + '\n❌ Error: ' + data.content);
+          setApiTestRunning(false);
+          break;
+
+
+        // spikes tab
+        case 'spikes-list-response':
+          setSpikesData(data.data || []);
           break;
         default:
           console.log('Unknown message type', data);
@@ -298,12 +368,36 @@ const App = () => {
                   {
                     label: 'tvl',
                     key: 'tvl',
-                    children: <div>{getTvlForm()}</div>,
+                    children: <div>
+                      <Tabs
+                        activeKey={tvlSubTab}
+                        size="small"
+                        items={[
+                          { label: 'refill', key: 'refill', children: getTvlForm() },
+                          { label: 'spikes', key: 'spikes', children: getSpikesForm() },
+                        ]}
+                        onChange={setTvlSubTab}
+                      />
+                    </div>,
                   },
                   {
                     label: 'misc',
                     key: 'misc',
                     children: <div>{getMiscForm()}</div>,
+                  },
+                  {
+                    label: 'api tests',
+                    key: 'api-tests',
+                    children: (
+                      <ApiTestForm
+                        wsRef={wsRef}
+                        isConnected={isConnected}
+                        formOptions={formOptions}
+                        onOutputChange={setOutput}
+                        apiTestRunning={apiTestRunning}
+                        setApiTestRunning={setApiTestRunning}
+                      />
+                    ),
                   },
                 ]}
                 onChange={(key) => {
@@ -314,19 +408,29 @@ const App = () => {
             </Splitter.Panel>
             <Splitter.Panel>
               {activeTabKey === 'dimensions' && getWaitingRecordsTable()}
-              {activeTabKey === 'tvl' && getTvlStoreWaitingTable()}
-              {activeTabKey === 'tvl' && getTvlDeleteWaitingTable()}
+              {activeTabKey === 'dimensions' && getDimDeleteWaitingTable()}
+              {activeTabKey === 'tvl' && tvlSubTab === 'refill' && getTvlStoreWaitingTable()}
+              {activeTabKey === 'tvl' && tvlSubTab === 'refill' && getTvlDeleteWaitingTable()}
+              {activeTabKey === 'tvl' && tvlSubTab === 'spikes' && getSpikesTable()}
               {activeTabKey === 'misc' && getMiscOutputTable()}
-
 
               {output && showDebugLogs && (<Divider>Console Output</Divider>)}
               <div
-                style={{ display: output && showDebugLogs ? 'block' : 'none' }}
+                style={{
+                  display: output && showDebugLogs ? 'block' : 'none',
+                  background: '#1e1e1e',
+                  color: '#d4d4d4',
+                  padding: output ? 15 : 0,
+                  borderRadius: 8,
+                  maxHeight: '600px',
+                  overflow: 'auto',
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  whiteSpace: 'pre-wrap',
+                }}
                 ref={outputRef}
-                className="output-container"
-              >
-                <pre>{output || ""}</pre>
-              </div>
+                dangerouslySetInnerHTML={{ __html: parseAnsiToHtml(output || '') }}
+              />
             </Splitter.Panel>
           </Splitter>
         </Content>
@@ -344,18 +448,40 @@ const App = () => {
 
     // Handle form submission
     const handleSubmit = (values) => {
-      // setOutput('');
+      if (dimDeleteAction) {
+        // Delete mode: fetch records for deletion review
+        const payload = {
+          type: 'dimensions-delete-get-list',
+          data: {
+            adapterType: values.adapterType,
+            protocol: values.protocol,
+            dateFrom: Math.floor(values.dateRange[0].valueOf() / 1000),
+            dateTo: Math.floor(values.dateRange[1].valueOf() / 1000),
+          }
+        };
 
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify(payload));
+        }
+        return;
+      }
+
+      const loadFromCsv = values.loadFromCsv || false;
       const payload = {
         type: 'dimensions-refill-runCommand',
         data: {
           adapterType: values.adapterType,
           protocol: values.protocol,
-          dateFrom: Math.floor(values.dateRange[0].valueOf() / 1000),
-          dateTo: Math.floor(values.dateRange[1].valueOf() / 1000),
+          // date range is not needed in CSV mode - dates come from the CSV itself
+          dateFrom: loadFromCsv || !values.dateRange ? undefined : Math.floor(values.dateRange[0].valueOf() / 1000),
+          dateTo: loadFromCsv || !values.dateRange ? undefined : Math.floor(values.dateRange[1].valueOf() / 1000),
           onlyMissing: values.onlyMissing || false,
           parallelCount: values.parallelCount,
           delayBetweenRuns: values.delayEnabled ? values.delayBetweenRuns ?? 0 : 0,
+          skipHourlyCache: values.skipHourlyCache || false,
+          parallelHourlyProcessCount: values.parallelHourlyProcessCount || 1,
+          loadFromCsv,
+          csvText: loadFromCsv ? values.csvText : undefined,
           // dryRun: values.dryRun || false,
           // checkBeforeInsert: values.checkBeforeInsert || false,
           dryRun: false,
@@ -382,10 +508,12 @@ const App = () => {
         onValuesChange={handleFormChange}
         initialValues={{
           parallelCount: 3,
+          parallelHourlyProcessCount: 3,
           onlyMissing: false,
           dryRun: false,
           delayBetweenRuns: 0,
           delayEnabled: false,
+          skipHourlyCache: false,
         }}
         style={{ 'max-width': '400px' }}
       >
@@ -421,9 +549,21 @@ const App = () => {
         </Form.Item>
 
         <Form.Item
+          label="Delete Mode"
+        >
+          <Switch
+            checked={dimDeleteAction}
+            onChange={(checked) => setDimDeleteAction(checked)}
+            checkedChildren="Delete"
+            unCheckedChildren="Refill"
+          />
+        </Form.Item>
+
+        <Form.Item
           label="Only Missing"
           name="onlyMissing"
           valuePropName="checked"
+          style={{ display: dimDeleteAction ? 'none' : 'block' }}
         >
           <Switch checkedChildren="Yes" unCheckedChildren="No" />
         </Form.Item>
@@ -431,11 +571,11 @@ const App = () => {
         <Form.Item
           label="Date Range"
           name="dateRange"
-          style={{ display: dimRefillOnlyMissing ? 'none' : 'block' }}
+          style={{ display: ((dimRefillOnlyMissing || dimRefillLoadFromCsv) && !dimDeleteAction) ? 'none' : 'block' }}
           rules={[
             ({ getFieldValue }) => ({
               validator(_, value) {
-                if (getFieldValue('onlyMissing') || (value && value.length === 2)) {
+                if (getFieldValue('onlyMissing') || getFieldValue('loadFromCsv') || (value && value.length === 2)) {
                   return Promise.resolve();
                 }
                 return Promise.reject(new Error('Please select a valid date range'));
@@ -446,10 +586,83 @@ const App = () => {
           <DatePicker.RangePicker />
         </Form.Item>
 
+        {!dimDeleteAction && <>
+        <Form.Item
+          label="Load from CSV"
+          name="loadFromCsv"
+          valuePropName="checked"
+          help="Build records from a pasted CSV instead of running the adapter's fetch functions"
+        >
+          <Switch checkedChildren="CSV" unCheckedChildren="Fetch" />
+        </Form.Item>
+
+        <Form.Item
+          label="CSV Data"
+          name="csvText"
+          style={{ display: dimRefillLoadFromCsv ? 'block' : 'none' }}
+          help="Columns: a date column (date/timestamp/day) + dimension columns (long e.g. dailyVolume, or short e.g. dv). Optional 'chain' column - multiple rows per date are aggregated per chain. No chain column => protocol's first chain."
+          rules={[
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                if (!getFieldValue('loadFromCsv') || (value && value.trim().length)) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('Please paste CSV data'));
+              },
+            }),
+          ]}
+        >
+          <Input.TextArea
+            rows={8}
+            placeholder={'date,chain,dailyVolume,dailyFees\n2024-01-01,ethereum,500000,2500\n2024-01-01,arbitrum,300000,1500\n2024-01-02,ethereum,520000,2600'}
+          />
+        </Form.Item>
+
+        {dimRefillLoadFromCsv && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16, borderRadius: 8 }}
+            message={<Text strong>Before saving CSV records</Text>}
+            description={
+              <Space direction="vertical" size={10} style={{ width: '100%', marginTop: 4 }}>
+                <div>
+                  <Tag color="blue" style={{ marginInlineEnd: 6 }}>Chains</Tag>
+                  Add a <b>chain</b> column when the protocol runs on multiple chains. Without it, every value is
+                  attributed to the protocol's first chain.
+                </div>
+                <div>
+                  <Tag color="red" style={{ marginInlineEnd: 6 }}>Overwrite</Tag>
+                  Saving <b>replaces the whole record</b>, so include <b>every dimension the adapter normally
+                  returns</b> (e.g. fees: <code>dailyFees</code>, <code>dailyRevenue</code>, …). Any dimension
+                  missing from the CSV is dropped. The run output lists the other dimensions this adapter type
+                  supports.
+                </div>
+                <div>
+                  <Tag color="gold" style={{ marginInlineEnd: 6 }}>Raw USD only</Tag>
+                  Values are stored as <b>raw USD numbers</b>. Token-breakdown adapters are <b>not yet
+                  supported</b> only aggregated USD values per chain are saved.
+                </div>
+              </Space>
+            }
+          />
+        )}
+        </>}
+
+        {!dimDeleteAction && !dimRefillLoadFromCsv && <>
         <Form.Item
           label="Parallel Count"
           name="parallelCount"
           rules={[{ required: true, message: 'Please enter parallel count' }]}
+        >
+          <InputNumber min={1} max={100} />
+        </Form.Item>
+
+        <Form.Item
+          label="Parallel Hourly Process Count"
+          name="parallelHourlyProcessCount"
+          help="Number of parallel processes for hourly slices (only for adapters that support hourly cache), set to 1 to disable parallel processing of hourly slices"
+          rules={[{ required: false, message: 'Please enter parallel hourly process count' }]}
         >
           <InputNumber min={1} max={100} />
         </Form.Item>
@@ -469,19 +682,30 @@ const App = () => {
           label="Delay Between Runs (seconds)"
           name="delayBetweenRuns"
           rules={[{ required: false, message: 'Please enter delay between runs' }]}
-          style={{ display: Form.useWatch('delayEnabled', dimensionRefillForm) ? 'block' : 'none' }}
+          style={{ display: dimRefillDelayEnabled ? 'block' : 'none' }}
         >
           <InputNumber min={0} max={1000} />
         </Form.Item>
 
+        <Form.Item
+          label="Skip Hourly Cache"
+          name="skipHourlyCache"
+          valuePropName="checked"
+          help="If enabled, hourly slices will be refetched instead of using cache"
+        >
+          <Switch checkedChildren="Yes" unCheckedChildren="No" />
+        </Form.Item>
+        </>}
+
         <Form.Item>
           <Button
-            type="primary"
+            type={dimDeleteAction ? "default" : "primary"}
             htmlType="submit"
-            icon={<PlayCircleOutlined />}
+            icon={dimDeleteAction ? <DeleteOutlined /> : <PlayCircleOutlined />}
             disabled={!isConnected}
+            danger={dimDeleteAction}
           >
-            Run
+            {dimDeleteAction ? 'Fetch Records for Deletion' : 'Run'}
           </Button>
         </Form.Item>
 
@@ -556,6 +780,7 @@ const App = () => {
           action: 'refill',
           removeTokenTvl: false,
           removeTokenTvlSymbols: '',
+          skipMissingChains: false,
         }}
         style={{ 'max-width': '400px' }}
       >
@@ -696,6 +921,15 @@ const App = () => {
               style={{ display: tvlRemoveTokensEnabled ? 'block' : 'none' }}
             >
               <Input style={{ width: '100%' }} placeholder="Enter token symbols or address(chain:xxx) (comma separated)" />
+            </Form.Item>
+
+            <Form.Item
+              label="Skip Missing Chains"
+              name="skipMissingChains"
+              valuePropName="checked"
+              layout='horizontal'
+            >
+              <Switch checkedChildren="Yes" unCheckedChildren="No" />
             </Form.Item>
 
           </>
@@ -855,6 +1089,204 @@ const App = () => {
     );
   }
 
+  function getDimDeleteWaitingTable() {
+    if (!dimDeleteWaitingRecords?.length) return null;
+
+    const colSet = new Set(['id', 'adapterType'])
+    const stringColSet = new Set(['id', 'adapterType', 'protocolName', 'timeS'])
+    const columns = []
+    const chartColumnsSet = new Set([])
+    dimDeleteWaitingRecords.forEach(record => {
+      Object.keys(record).forEach(key => {
+        if (colSet.has(key)) return;
+        if (key.startsWith('_')) {
+          if (key.startsWith('_d') && key.lastIndexOf('_') === 0) chartColumnsSet.add(key);
+          return;
+        }
+        if (!dimDeleteWaitingRecordsShowChainColumns && key.includes('_')) return;
+        const column = { title: key, dataIndex: key, key, }
+        if (stringColSet.has(key))
+          column.sorter = (a, b) => a[key].localeCompare(b[key]);
+        else
+          column.sorter = (a, b) => a['_' + key] - b['_' + key];
+        columns.push(column);
+        colSet.add(key);
+      });
+    });
+    const chartColumns = Array.from(chartColumnsSet)
+    let selectChartElement = null;
+    let chartColumnSelected = dimDeleteWaitingRecordsSelectedChartColumn ? dimDeleteWaitingRecordsSelectedChartColumn : chartColumns[0];
+
+    if (chartColumns.length > 1 && dimDeleteWaitingRecordsShowChart) {
+      selectChartElement = <Select
+        defaultValue={dimDeleteWaitingRecordsSelectedChartColumn ? dimDeleteWaitingRecordsSelectedChartColumn : chartColumnSelected}
+        style={{ width: 200 }}
+        onChange={setDimDeleteWaitingRecordsSelectedChartColumn}
+      >
+        {chartColumns.map((column) => (
+          <Option key={column} value={column}>{column}</Option>
+        ))}
+      </Select>
+    }
+
+    const showDeleteConfirm = (ids) => {
+      if (!ids || ids.length === 0) return;
+      setDimDeletePendingIds(ids);
+      setDimDeleteConfirmModalOpen(true);
+      setDimDeleteConfirmText('');
+    };
+
+    const handleDeleteConfirm = () => {
+      if (dimDeleteConfirmText !== 'DELETE') {
+        return;
+      }
+
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        alert('WebSocket connection is not open. Please reconnect.');
+        return;
+      }
+      
+      const payload = {
+        type: 'dimensions-delete-delete-records',
+        data: dimDeletePendingIds,
+      };
+      wsRef.current.send(JSON.stringify(payload));
+      setDimDeleteWaitingRecordsDeletableIds([]);
+      setDimDeleteConfirmModalOpen(false);
+      setDimDeleteConfirmText('');
+      setDimDeletePendingIds([]);
+    };
+
+    const getDeleteConfirmModalContent = () => {
+      const selectedRecords = dimDeleteWaitingRecords.filter(r => dimDeletePendingIds.includes(r.id));
+      const protocolAdapterMap = {};
+      selectedRecords.forEach(r => {
+        const key = `${r.protocolName}`;
+        if (!protocolAdapterMap[key]) {
+          protocolAdapterMap[key] = new Set();
+        }
+        protocolAdapterMap[key].add(r.adapterType);
+      });
+      
+      const protocolList = Object.entries(protocolAdapterMap).map(([protocol, types]) => 
+        `${protocol} (${Array.from(types).join(', ')})`
+      ).join(', ');
+
+      return (
+        <div>
+          <p><strong style={{ color: 'red' }}>WARNING: This action cannot be undone!</strong></p>
+          <p>You are about to permanently delete:</p>
+          <ul>
+            <li><strong>Records:</strong> {dimDeletePendingIds.length}</li>
+            <li><strong>Protocols:</strong> {protocolList}</li>
+          </ul>
+          <p>Type <strong>DELETE</strong> below to confirm:</p>
+          <Input
+            value={dimDeleteConfirmText}
+            onChange={(e) => setDimDeleteConfirmText(e.target.value)}
+            placeholder="Type DELETE to confirm"
+            onPressEnter={handleDeleteConfirm}
+          />
+        </div>
+      );
+    };
+
+    return (
+      <div>
+        <Divider>[Dimensions] Delete Waiting Records</Divider>
+        <div style={{ marginBottom: 10 }}>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '30px' }}>
+
+            <Button type="primary" icon={<ClearOutlined />}
+              onClick={() => {
+                if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                  alert('WebSocket connection is not open. Please reconnect.');
+                  return;
+                }
+
+                const payload = {
+                  type: 'dimensions-delete-clear-list',
+                  data: [],
+                };
+
+                wsRef.current.send(JSON.stringify(payload));
+                setDimDeleteWaitingRecordsDeletableIds([]);
+              }}
+
+            > Clear list </Button>
+
+
+            <Button
+              type="default"
+              icon={<DeleteOutlined />}
+              disabled={dimDeleteWaitingRecordsDeletableIds.length === 0}
+              danger
+              onClick={() => {
+                if (dimDeleteWaitingRecordsDeletableIds.length === 0) return;
+                showDeleteConfirm(dimDeleteWaitingRecordsDeletableIds);
+              }}
+            >
+              Delete Selected in DB
+            </Button>
+
+
+            <Button
+              type="default"
+              icon={< LineChartOutlined />}
+              onClick={() => setDimDeleteWaitingRecordsShowChart(!dimDeleteWaitingRecordsShowChart)}
+            >
+              {dimDeleteWaitingRecordsShowChart ? 'Hide Chart' : 'Show Chart'}
+            </Button>
+
+            {selectChartElement}
+
+
+            <Switch
+              checked={dimDeleteWaitingRecordsShowChainColumns}
+              onChange={(checked) => setDimDeleteWaitingRecordsShowChainColumns(checked)}
+              unCheckedChildren="Show chain info"
+              checkedChildren="Hide chain info"
+            />
+          </div>
+        </div>
+
+        {dimDeleteWaitingRecordsShowChart && printChartData(dimDeleteWaitingRecords, chartColumnSelected)}
+
+        <Table
+          columns={columns}
+          dataSource={dimDeleteWaitingRecords}
+          pagination={{ pageSize: 5000 }}
+          rowKey={(record) => record.id}
+          rowSelection={{
+            type: 'checkbox',
+            onChange: (selectedRowKeys) => {
+              setDimDeleteWaitingRecordsDeletableIds(selectedRowKeys);
+            },
+          }}
+        />
+
+        <Modal
+          title={<span><ExclamationCircleOutlined style={{ color: '#ff4d4f' }} /> Confirm Deletion</span>}
+          open={dimDeleteConfirmModalOpen}
+          onOk={handleDeleteConfirm}
+          onCancel={() => {
+            setDimDeleteConfirmModalOpen(false);
+            setDimDeleteConfirmText('');
+            setDimDeletePendingIds([]);
+          }}
+          okText="Confirm Delete"
+          okType="danger"
+          okButtonProps={{ disabled: dimDeleteConfirmText !== 'DELETE' }}
+          cancelText="Cancel"
+          width={600}
+        >
+          {getDeleteConfirmModalContent()}
+        </Modal>
+      </div >
+    );
+  }
+
   function getTvlStoreWaitingTable() {
     if (!tvlStoreWaitingRecords?.length) return null;
     tvlStoreWaitingRecords.forEach(record => record.unixTimestamp = '' + record.unixTimestamp);
@@ -990,6 +1422,11 @@ const App = () => {
       > Clear list </Button>)
 
     let data = ''
+    const cgData = miscOutputTableData.data?.coingecko || []
+    const cmcData = miscOutputTableData.data?.coinmarketcap || []
+    const allCategories = [...new Set([...cgData, ...cmcData].map(r => r.category).filter(Boolean))].sort()
+    const categoryFilters = allCategories.map(c => ({ text: c, value: c }))
+
     const cgCMCColumns = [
       { title: 'Protocol/chain', dataIndex: 'name', key: 'name', sorter: (a, b) => a.name.localeCompare(b.name) },
       { title: 'Domain', dataIndex: 'domainK', key: 'domainK', sorter: (a, b) => a.domainK.localeCompare(b.domainK) },
@@ -997,65 +1434,75 @@ const App = () => {
       { title: 'Symbols', dataIndex: 'symbols', key: 'symbols', sorter: (a, b) => a.symbols.localeCompare(b.symbols) },
       { title: 'Coin IDs', dataIndex: 'coinIds', key: 'coinIds', sorter: (a, b) => a.coinIds.localeCompare(b.coinIds) },
       { title: 'Coins', dataIndex: 'coins', key: 'coins', sorter: (a, b) => a.coins.localeCompare(b.coins) },
-      { title: 'Category', dataIndex: 'category', key: 'category', sorter: (a, b) => a.category.localeCompare(b.category) },
+      { title: 'Category', dataIndex: 'category', key: 'category', sorter: (a, b) => a.category.localeCompare(b.category), filters: categoryFilters, onFilter: (value, record) => record.category === value },
     ]
     switch (miscOutputTableData.type) {
       case 'get-protocols-missing-tokens-response':
         data = (
-          <div>
-            <div style={{ marginBottom: 10, fontWeight: 'bold', fontSize: '16px' }}>
-              Missing CG Mappings
-            </div>
-            <Table
-              columns={cgCMCColumns}
-              dataSource={miscOutputTableData.data?.coingecko || []}
-              pagination={{ pageSize: 100 }}
-              rowKey={(record) => record.name}
-            />
-
-            <div style={{ marginBottom: 10, fontWeight: 'bold', fontSize: '16px' }}>
-              Missing CMC Mappings
-            </div>
-            <Table
-              columns={cgCMCColumns}
-              dataSource={miscOutputTableData.data?.coinmarketcap || []}
-              pagination={{ pageSize: 100 }}
-              rowKey={(record) => record.name}
-            />
-
-
-            <div style={{ marginBottom: 10, fontWeight: 'bold', fontSize: '16px' }}>
-              Protocols missing symbol info
-            </div>
-            <Table
-              columns={[
-                { title: 'Protocol Id', dataIndex: 'protocolId', key: 'protocolId', sorter: (a, b) => a.protocolId.localeCompare(b.protocolId) },
-                { title: 'Symbol', dataIndex: 'symbol', key: 'symbol', sorter: (a, b) => a.symbol.localeCompare(b.symbol) },
-                { title: 'Source', dataIndex: 'source', key: 'source', sorter: (a, b) => a.source.localeCompare(b.source) },
-              ]}
-              dataSource={miscOutputTableData.data?.protocolsMissingSymbols || []}
-              pagination={{ pageSize: 100 }}
-              rowKey={(record) => record.name}
-            />
-
-
-            <div style={{ marginBottom: 10, fontWeight: 'bold', fontSize: '16px' }}>
-              Protocols missing Address info
-            </div>
-            <Table
-              columns={[
-                { title: 'Protocol Id', dataIndex: 'protocolId', key: 'protocolId', sorter: (a, b) => a.protocolId.localeCompare(b.protocolId) },
-                { title: 'Address', dataIndex: 'address', key: 'address', sorter: (a, b) => a.address.localeCompare(b.address) },
-                { title: 'Source', dataIndex: 'source', key: 'source', sorter: (a, b) => a.source.localeCompare(b.source) },
-              ]}
-              dataSource={miscOutputTableData.data?.protocolsMissingAddresses || []}
-              pagination={{ pageSize: 100 }}
-              rowKey={(record) => record.name}
-            />
-
-
-
-          </div>
+          <Collapse defaultActiveKey={[]} style={{ marginBottom: 10 }}
+            items={[
+              {
+                key: 'cg',
+                label: `Missing CG Mappings (${cgData.length})`,
+                children: (
+                  <Table
+                    columns={cgCMCColumns}
+                    dataSource={cgData}
+                    pagination={{ pageSize: 100 }}
+                    rowKey={(record) => record.name}
+                  />
+                ),
+              },
+              {
+                key: 'cmc',
+                label: `Missing CMC Mappings (${cmcData.length})`,
+                children: (
+                  <Table
+                    columns={cgCMCColumns}
+                    dataSource={cmcData}
+                    pagination={{ pageSize: 100 }}
+                    rowKey={(record) => record.name}
+                  />
+                ),
+              },
+              {
+                key: 'symbols',
+                label: `Protocols missing symbol info (${(miscOutputTableData.data?.protocolsMissingSymbols || []).length})`,
+                children: (
+                  <Table
+                    columns={[
+                      { title: 'Protocol Id', dataIndex: 'protocolId', key: 'protocolId', sorter: (a, b) => a.protocolId.localeCompare(b.protocolId) },
+                      { title: 'Name', dataIndex: 'name', key: 'name', sorter: (a, b) => (a.name || '').localeCompare(b.name || '') },
+                      { title: 'Symbol', dataIndex: 'symbol', key: 'symbol', sorter: (a, b) => a.symbol.localeCompare(b.symbol) },
+                      { title: 'Address', dataIndex: 'address', key: 'address', sorter: (a, b) => (a.address || '').localeCompare(b.address || '') },
+                      { title: 'Source', dataIndex: 'source', key: 'source', sorter: (a, b) => a.source.localeCompare(b.source) },
+                    ]}
+                    dataSource={miscOutputTableData.data?.protocolsMissingSymbols || []}
+                    pagination={{ pageSize: 100 }}
+                    rowKey={(record) => record.protocolId + record.source}
+                  />
+                ),
+              },
+              {
+                key: 'addresses',
+                label: `Protocols missing Address info (${(miscOutputTableData.data?.protocolsMissingAddresses || []).length})`,
+                children: (
+                  <Table
+                    columns={[
+                      { title: 'Protocol Id', dataIndex: 'protocolId', key: 'protocolId', sorter: (a, b) => a.protocolId.localeCompare(b.protocolId) },
+                      { title: 'Name', dataIndex: 'name', key: 'name', sorter: (a, b) => (a.name || '').localeCompare(b.name || '') },
+                      { title: 'Symbol', dataIndex: 'symbol', key: 'symbol', sorter: (a, b) => (a.symbol || '').localeCompare(b.symbol || '') },
+                      { title: 'Address', dataIndex: 'address', key: 'address', sorter: (a, b) => a.address.localeCompare(b.address) },
+                      { title: 'Source', dataIndex: 'source', key: 'source', sorter: (a, b) => a.source.localeCompare(b.source) },
+                    ]}
+                    dataSource={miscOutputTableData.data?.protocolsMissingAddresses || []}
+                    pagination={{ pageSize: 100 }}
+                    rowKey={(record) => record.protocolId + record.address}
+                  />
+                ),
+              },
+            ]}
+          />
         )
         break;
       case 'get-protocols-token-dominance-response':
@@ -1267,6 +1714,625 @@ const App = () => {
       </div >
     );
   }
+
+  // ── Spikes Tab ──────────────────────────────────────────────────────────────
+
+  function fetchSpikesData() {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'spikes-runCommand',
+        data: { action: 'spikes-get-list' },
+      }));
+    }
+  }
+
+  function updateSpikeRecord(record, updates) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'spikes-runCommand',
+        data: {
+          action: 'spikes-update-record',
+          protocolId: record.protocolId,
+          startTimestamp: record.event?.startTimestamp,
+          eventType: record.event?.type,
+          chain: record.event?.chain || null,
+          updates,
+        },
+      }));
+    }
+  }
+
+  function bulkUpdateSpikes(updates) {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const selectedRecords = spikesData.filter(r => spikesSelectedRowKeys.includes(r._id));
+    wsRef.current.send(JSON.stringify({
+      type: 'spikes-runCommand',
+      data: {
+        action: 'spikes-bulk-update',
+        records: selectedRecords.map(r => ({
+          protocolId: r.protocolId,
+          startTimestamp: r.event?.startTimestamp,
+          eventType: r.event?.type,
+          chain: r.event?.chain || null,
+        })),
+        updates,
+      },
+    }));
+    setSpikesSelectedRowKeys([]);
+  }
+
+  function refillSpike(record) {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const start = record.event?.startTimestamp;
+    if (!start) return;
+    const end = record.event?.endTimestamp || start;
+    wsRef.current.send(JSON.stringify({
+      type: 'tvl-runCommand',
+      data: {
+        action: 'refill',
+        protocolName: record.protocolName,
+        dateFrom: start - 86400,
+        dateTo: end,
+        parallelCount: 1,
+        maxRetries: 3,
+        chains: record.event?.chain || '',
+        skipBlockFetch: false,
+        breakIfTvlIsZero: false,
+        removeTokenTvl: false,
+        removeTokenTvlSymbols: '',
+        skipMissingChains: false,
+      },
+    }));
+  }
+
+  function bulkRefillSpikes() {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const selectedRecords = spikesData.filter(r => spikesSelectedRowKeys.includes(r._id));
+    for (const r of selectedRecords) refillSpike(r);
+    setSpikesSelectedRowKeys([]);
+  }
+
+  function fmtNum(n) {
+    if (n == null || isNaN(n)) return '-';
+    const sign = n < 0 ? '-' : '';
+    const abs = Math.abs(n);
+    if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+    if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1)}K`;
+    return `${sign}$${abs.toFixed(0)}`;
+  }
+
+  function runSpikesDetection() {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'spikes-runCommand',
+        data: {
+          action: 'spikes-run-detection',
+          protocolName: spikesProtocolFilter || undefined,
+          writeToEs: spikesWriteToEs,
+        },
+      }));
+    }
+  }
+
+  function getSpikeRefillability(record) {
+    const refillabilityMap = formOptions.tvlProtocolRefillability
+    if (!refillabilityMap) {
+      return { refillableBySpikeTool: true, };
+    }
+
+    const keys = [
+      record.protocolId,
+      record.protocolName,
+      record.protocolSlug,
+      record.protocolName?.toLowerCase(),
+      record.protocolSlug?.toLowerCase(),
+    ].filter(Boolean);
+
+    for (const key of keys) {
+      const info = refillabilityMap[String(key)];
+      if (info) return info;
+    }
+
+    return {
+      refillableBySpikeTool: false,
+    };
+  }
+
+  function spikesRecordFilter(r) {
+    if (!spikesFilterResolved && r.resolved) return false;
+    if (!spikesShowNonRefillable && !getSpikeRefillability(r).refillableBySpikeTool) return false;
+    if (spikesExcludedCategories.includes(r.category)) return false;
+    if (Math.abs(r.event?.changeValue || 0) < spikesMinChangeValue) return false;
+    if (Math.abs(r.event?.changePct || 0) < spikesMinChangePct) return false;
+    if (spikesDateRange && spikesDateRange[0] && spikesDateRange[1]) {
+      const ts = r.event?.startTimestamp || 0;
+      const from = Math.floor(spikesDateRange[0].startOf('day').valueOf() / 1000);
+      const to = Math.floor(spikesDateRange[1].endOf('day').valueOf() / 1000);
+      if (ts < from || ts > to) return false;
+    }
+    return true;
+  }
+
+  function getSpikesForm() {
+    const spikesCategoryOptions = [...new Set(spikesData.map(r => r.category).filter(Boolean))]
+      .sort()
+      .map(category => ({ label: category, value: category }));
+
+    return (
+      <div style={{ maxWidth: '400px', padding: '10px' }}>
+        <h3>TVL Spikes & Drops</h3>
+        <p style={{ fontSize: 12, opacity: 0.7 }}>Self-fixing TVL anomalies detected across protocols</p>
+
+        <Divider />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* <Input
+            placeholder="Protocol name (empty = all)"
+            value={spikesProtocolFilter}
+            onChange={(e) => setSpikesProtocolFilter(e.target.value)}
+          />
+
+          <Button
+            type="primary"
+            icon={<SearchOutlined />}
+            onClick={runSpikesDetection}
+            disabled={!isConnected}
+          >
+            Run Detection
+          </Button>
+
+          <div>
+            <span style={{ marginRight: 8 }}>Write to ES: </span>
+            <Switch
+              checked={spikesWriteToEs}
+              onChange={setSpikesWriteToEs}
+              checkedChildren="Yes"
+              unCheckedChildren="No"
+            />
+          </div>
+
+          <Divider /> */}
+
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={fetchSpikesData}
+            disabled={!isConnected}
+          >
+            Load from Elasticsearch
+          </Button>
+
+          <Divider />
+
+          <div>
+            <span style={{ marginRight: 8 }}>Show resolved: </span>
+            <Switch
+              checked={spikesFilterResolved}
+              onChange={setSpikesFilterResolved}
+              checkedChildren="Yes"
+              unCheckedChildren="No"
+            />
+          </div>
+
+          <div>
+            <span style={{ marginRight: 8 }}>Show non-refillable: </span>
+            <Switch
+              checked={spikesShowNonRefillable}
+              onChange={setSpikesShowNonRefillable}
+              checkedChildren="Yes"
+              unCheckedChildren="No"
+            />
+          </div>
+
+          <div>
+            <span style={{ display: 'block', marginBottom: 4 }}>Exclude categories:</span>
+            <Select
+              mode="multiple"
+              allowClear
+              maxTagCount="responsive"
+              placeholder="Select categories to hide"
+              style={{ width: '100%' }}
+              value={spikesExcludedCategories}
+              options={spikesCategoryOptions}
+              optionFilterProp="label"
+              onChange={(categories) => {
+                setSpikesExcludedCategories(categories);
+              }}
+            />
+          </div>
+
+          <div>
+            <span style={{ display: 'block', marginBottom: 4 }}>Min change value:</span>
+            <InputNumber
+              style={{ width: '100%' }}
+              value={spikesMinChangeValue}
+              onChange={(v) => setSpikesMinChangeValue(v || 0)}
+              min={0}
+              step={100000}
+              formatter={v => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={v => v.replace(/\$\s?|(,*)/g, '')}
+            />
+          </div>
+
+          <div>
+            <span style={{ display: 'block', marginBottom: 4 }}>Min change %:</span>
+            <InputNumber
+              style={{ width: '100%' }}
+              value={spikesMinChangePct}
+              onChange={(v) => setSpikesMinChangePct(v || 0)}
+              min={0}
+              step={5}
+              formatter={v => `${v}%`}
+              parser={v => v.replace('%', '')}
+            />
+          </div>
+
+          <div>
+            <span style={{ display: 'block', marginBottom: 4 }}>Date range:</span>
+            <DatePicker.RangePicker
+              style={{ width: '100%' }}
+              value={spikesDateRange}
+              onChange={setSpikesDateRange}
+              allowClear
+            />
+          </div>
+
+          {spikesData.length > 0 && (
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              Showing {spikesData.filter(r => spikesRecordFilter(r)).length} of {spikesData.length} records
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function getSpikesTable() {
+    if (!spikesData?.length) return null;
+
+    const filteredData = spikesData.filter(r => spikesRecordFilter(r));
+    const spikesTablePageSize = spikesTableState.pagination?.pageSize || 100;
+    const spikesTableCurrentPage = Math.min(
+      spikesTableState.pagination?.current || 1,
+      Math.max(Math.ceil(filteredData.length / spikesTablePageSize), 1)
+    );
+    const spikesTableFilters = spikesTableState.filters || {};
+
+    const getSpikesColumnState = (key) => ({
+      filteredValue: Object.prototype.hasOwnProperty.call(spikesTableFilters, key) ? spikesTableFilters[key] : null,
+      sortOrder: spikesTableState.sorter?.columnKey === key ? spikesTableState.sorter.order : null,
+    });
+
+    const handleSpikesTableChange = (pagination, filters, sorter) => {
+      const activeSorter = Array.isArray(sorter) ? sorter[0] : sorter;
+      setSpikesTableState({
+        pagination: {
+          current: pagination.current,
+          pageSize: pagination.pageSize,
+        },
+        filters,
+        sorter: {
+          columnKey: activeSorter?.columnKey || null,
+          order: activeSorter?.order || null,
+        },
+      });
+    };
+
+    const textSearchFilter = (dataIndex, placeholder) => ({
+      filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }) => (
+        <div style={{ padding: 8 }}>
+          <Input
+            placeholder={placeholder}
+            value={selectedKeys[0]}
+            onChange={e => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+            onPressEnter={confirm}
+            style={{ marginBottom: 8, display: 'block' }}
+          />
+          <Space>
+            <Button type="primary" onClick={confirm} icon={<SearchOutlined />} size="small">Search</Button>
+            <Button onClick={clearFilters} size="small">Reset</Button>
+          </Space>
+        </div>
+      ),
+      filterIcon: filtered => <SearchOutlined style={{ color: filtered ? '#1890ff' : undefined }} />,
+      onFilter: (value, record) => {
+        const val = typeof dataIndex === 'function' ? dataIndex(record) : record[dataIndex];
+        return (val || '').toLowerCase().includes(value.toLowerCase());
+      },
+    });
+
+    const inlineEditCell = (record, field, editingState, setEditingState, valueState, setValueState) => {
+      if (editingState === record._id) {
+        return (
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              size="small"
+              value={valueState}
+              onChange={(e) => setValueState(e.target.value)}
+              onPressEnter={() => {
+                updateSpikeRecord(record, { [field]: valueState });
+                setEditingState(null);
+              }}
+            />
+            <Button size="small" type="primary" onClick={() => {
+              updateSpikeRecord(record, { [field]: valueState });
+              setEditingState(null);
+            }}>
+              <CheckOutlined />
+            </Button>
+            <Button size="small" onClick={() => setEditingState(null)}>
+              <CloseOutlined />
+            </Button>
+          </Space.Compact>
+        );
+      }
+      return (
+        <span
+          style={{ cursor: 'pointer', opacity: record[field] ? 1 : 0.4 }}
+          onClick={() => {
+            setEditingState(record._id);
+            setValueState(record[field] || '');
+          }}
+        >
+          {record[field] || 'click to add...'}
+        </span>
+      );
+    };
+
+    const columns = [
+      {
+        title: 'Protocol',
+        dataIndex: 'protocolName',
+        key: 'protocolName',
+        sorter: (a, b) => (a.protocolName || '').localeCompare(b.protocolName || ''),
+        ...textSearchFilter('protocolName', 'Search protocol'),
+        ...getSpikesColumnState('protocolName'),
+        render: (text, record) => (
+          <a href={`https://defillama.com/protocol/${record.protocolSlug}`} target="_blank" rel="noreferrer">
+            {text}
+          </a>
+        ),
+      },
+      {
+        title: 'Category',
+        dataIndex: 'category',
+        key: 'category',
+        width: 120,
+        sorter: (a, b) => (a.category || '').localeCompare(b.category || ''),
+        filters: [...new Set(spikesData.map(r => r.category).filter(Boolean))].sort().map(c => ({ text: c, value: c })),
+        onFilter: (value, record) => record.category === value,
+        ...getSpikesColumnState('category'),
+      },
+      {
+        title: 'Type',
+        dataIndex: ['event', 'type'],
+        key: 'type',
+        width: 80,
+        filters: [
+          { text: 'Spike', value: 'spike' },
+          { text: 'Drop', value: 'drop' },
+        ],
+        onFilter: (value, record) => record.event?.type === value,
+        ...getSpikesColumnState('type'),
+        render: (text) => (
+          <Tag color={text === 'spike' ? 'red' : 'blue'}>{(text || '').toUpperCase()}</Tag>
+        ),
+      },
+      {
+        title: 'Level',
+        key: 'level',
+        width: 100,
+        sorter: (a, b) => (a.event?.level || '').localeCompare(b.event?.level || ''),
+        filters: [
+          { text: 'Global', value: 'global' },
+          { text: 'Chain', value: 'chain' },
+        ],
+        onFilter: (value, record) => (record.event?.level || '') === value,
+        ...getSpikesColumnState('level'),
+        render: (_, record) => {
+          const e = record.event || {};
+          return e.chain ? `chain/${e.chain}` : 'global';
+        },
+      },
+      {
+        title: 'Chain',
+        key: 'chain',
+        dataIndex: ['event', 'chain'],
+        filters: [...new Set(spikesData.map(r => r.event?.chain).filter(Boolean))].map(c => ({ text: c, value: c })),
+        onFilter: (value, record) => record.event?.chain === value,
+        ...getSpikesColumnState('chain'),
+        render: (text) => text || '-',
+      },
+      {
+        title: 'Start',
+        key: 'start',
+        sorter: (a, b) => (a.event?.startTimestamp || 0) - (b.event?.startTimestamp || 0),
+        ...getSpikesColumnState('start'),
+        render: (_, record) => {
+          const ts = record.event?.startTimestamp;
+          return ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '-';
+        },
+      },
+      {
+        title: 'Duration',
+        key: 'duration',
+        width: 80,
+        sorter: (a, b) => (a.event?.durationDays || 0) - (b.event?.durationDays || 0),
+        ...getSpikesColumnState('duration'),
+        render: (_, record) => `${record.event?.durationDays || 0}d`,
+      },
+      {
+        title: 'Change %',
+        key: 'changePct',
+        width: 90,
+        sorter: (a, b) => Math.abs(a.event?.changePct || 0) - Math.abs(b.event?.changePct || 0),
+        ...getSpikesColumnState('changePct'),
+        render: (_, record) => {
+          const pct = record.event?.changePct;
+          if (pct == null) return '-';
+          const color = pct > 0 ? '#ff4d4f' : '#1890ff';
+          return <span style={{ color, fontWeight: 'bold' }}>{pct > 0 ? '+' : ''}{pct.toFixed(1)}%</span>;
+        },
+      },
+      {
+        title: 'Change Value',
+        key: 'changeValue',
+        width: 110,
+        sorter: (a, b) => Math.abs(a.event?.changeValue || 0) - Math.abs(b.event?.changeValue || 0),
+        ...getSpikesColumnState('changeValue'),
+        render: (_, record) => fmtNum(record.event?.changeValue),
+      },
+      {
+        title: 'Pre-value',
+        key: 'preValue',
+        width: 100,
+        sorter: (a, b) => (a.event?.preValue || 0) - (b.event?.preValue || 0),
+        ...getSpikesColumnState('preValue'),
+        render: (_, record) => fmtNum(record.event?.preValue),
+      },
+      {
+        title: 'Tokens',
+        key: 'tokens',
+        width: 200,
+        render: (_, record) => {
+          const tokens = record.tokens || [];
+          if (!tokens.length) return '-';
+          return tokens.slice(0, 3).map((t, i) => (
+            <Tag key={i} style={{ marginBottom: 2 }}>
+              {t.token}: {fmtNum(t.changeValue)} ({t.changePct > 0 ? '+' : ''}{t.changePct?.toFixed(1)}%)
+            </Tag>
+          ));
+        },
+      },
+      {
+        title: 'Score',
+        dataIndex: 'score',
+        key: 'score',
+        width: 70,
+        sorter: (a, b) => (a.score || 0) - (b.score || 0),
+        ...getSpikesColumnState('score'),
+      },
+      {
+        title: 'Assigned',
+        key: 'assigned',
+        width: 140,
+        ...textSearchFilter('assigned', 'Filter assigned'),
+        sorter: (a, b) => (a.assigned || '').localeCompare(b.assigned || ''),
+        filters: [
+          { text: 'Unassigned', value: '__empty__' },
+          ...[...new Set(spikesData.map(r => r.assigned).filter(Boolean))].map(a => ({ text: a, value: a })),
+        ],
+        onFilter: (value, record) => value === '__empty__' ? !record.assigned : record.assigned === value,
+        ...getSpikesColumnState('assigned'),
+        render: (_, record) => inlineEditCell(record, 'assigned', spikesEditingAssigned, setSpikesEditingAssigned, spikesAssignedValue, setSpikesAssignedValue),
+      },
+      {
+        title: 'Comment',
+        key: 'comment',
+        width: 180,
+        render: (_, record) => inlineEditCell(record, 'comment', spikesEditingComment, setSpikesEditingComment, spikesCommentValue, setSpikesCommentValue),
+      },
+      {
+        title: 'Resolved',
+        key: 'resolved',
+        width: 90,
+        filters: [
+          { text: 'Resolved', value: true },
+          { text: 'Unresolved', value: false },
+        ],
+        onFilter: (value, record) => !!record.resolved === value,
+        ...getSpikesColumnState('resolved'),
+        render: (_, record) => (
+          <Switch
+            size="small"
+            checked={!!record.resolved}
+            onChange={(checked) => updateSpikeRecord(record, { resolved: checked })}
+            checkedChildren={<CheckOutlined />}
+            unCheckedChildren={<CloseOutlined />}
+          />
+        ),
+      },
+    ];
+
+    return (
+      <div>
+        <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 'bold', fontSize: '16px' }}>
+            TVL Spikes & Drops ({filteredData.length} records)
+          </span>
+        </div>
+
+        {spikesSelectedRowKeys.length > 0 && (
+          <div style={{ marginBottom: 10, padding: 10, background: 'rgba(24,144,255,0.06)', borderRadius: 6, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 'bold' }}>{spikesSelectedRowKeys.length} selected:</span>
+
+            <Input
+              size="small"
+              style={{ width: 160 }}
+              placeholder="Set comment..."
+              value={spikesBulkComment}
+              onChange={e => setSpikesBulkComment(e.target.value)}
+            />
+            <Button size="small" disabled={!spikesBulkComment} onClick={() => {
+              bulkUpdateSpikes({ comment: spikesBulkComment });
+              setSpikesBulkComment('');
+            }}>
+              Set Comment
+            </Button>
+
+            <Input
+              size="small"
+              style={{ width: 140 }}
+              placeholder="Set assigned..."
+              value={spikesBulkAssigned}
+              onChange={e => setSpikesBulkAssigned(e.target.value)}
+            />
+            <Button size="small" disabled={!spikesBulkAssigned} onClick={() => {
+              bulkUpdateSpikes({ assigned: spikesBulkAssigned });
+              setSpikesBulkAssigned('');
+            }}>
+              Set Assigned
+            </Button>
+
+            <Button size="small" type="primary" onClick={() => bulkUpdateSpikes({ resolved: true })}>
+              <CheckOutlined /> Mark Resolved
+            </Button>
+            <Button size="small" onClick={() => bulkUpdateSpikes({ resolved: false })}>
+              Mark Unresolved
+            </Button>
+            <Button size="small" type="primary" icon={<ReloadOutlined />} onClick={bulkRefillSpikes}>
+              Refill
+            </Button>
+            <Button size="small" danger onClick={() => setSpikesSelectedRowKeys([])}>
+              Clear Selection
+            </Button>
+          </div>
+        )}
+
+        <Table
+          columns={columns}
+          dataSource={filteredData}
+          pagination={{
+            current: spikesTableCurrentPage,
+            pageSize: spikesTablePageSize,
+            showSizeChanger: true,
+            pageSizeOptions: [50, 100, 500, 5000],
+          }}
+          onChange={handleSpikesTableChange}
+          rowKey={(record) => record._id}
+          size="small"
+          scroll={{ x: 1600 }}
+          rowSelection={{
+            type: 'checkbox',
+            selectedRowKeys: spikesSelectedRowKeys,
+            onChange: (keys) => setSpikesSelectedRowKeys(keys),
+          }}
+        />
+      </div>
+    );
+  }
+
+  // ── End Spikes Tab ─────────────────────────────────────────────────────────
 
   function getMiscForm() {
     // Handle form submission

@@ -1,7 +1,7 @@
 import { successResponse, wrap, IResponse } from "./utils/shared";
 import ddb from "./utils/shared/dynamodb";
 import parseRequestBody from "./utils/shared/parseRequestBody";
-import getRecordClosestToTimestamp from "./utils/shared/getRecordClosestToTimestamp";
+import { getRecordClosestToTimestamp } from "./utils/distressedAwareRecord";
 import { CoinsResponse, getBasicCoins } from "./utils/getCoinsUtils";
 import { getCurrentUnixTimestamp } from "./utils/date";
 import { searchWidth } from "./utils/shared/constants";
@@ -15,12 +15,9 @@ const handler = async (event: any): Promise<IResponse> => {
   await Promise.all(
     coins.map(async (coin) => {
 
-    if (typeof coin?.decimals === 'string' && !isNaN(Number(coin.decimals)))
-        coin.decimals = Number(coin.decimals);
-      
       let formattedCoin = {
-        decimals: coin.decimals,
-        price: coin.price,
+        decimals: coin.decimals == null ? undefined : Number(coin.decimals),
+        price: Number(coin.price),
         symbol: coin.symbol.replace(/\0/g, ""),
         timestamp: coin.timestamp,
       };
@@ -33,7 +30,7 @@ const handler = async (event: any): Promise<IResponse> => {
           if (redirectedCoin.Item === undefined) {
             return;
           }
-          formattedCoin.price = redirectedCoin.Item.price;
+          formattedCoin.price = Number(redirectedCoin.Item.price);
           formattedCoin.timestamp = redirectedCoin.Item.timestamp;
           formattedCoin.symbol =
             formattedCoin.symbol ?? redirectedCoin.Item.symbol;
@@ -44,15 +41,15 @@ const handler = async (event: any): Promise<IResponse> => {
           Number(timestampRequested),
           searchWidth,
         );
-        if (finalCoin.SK === undefined) return;
-        formattedCoin.price = finalCoin.price;
+        if (finalCoin?.SK === undefined) return;
+        formattedCoin.price = Number(finalCoin.price);
         formattedCoin.timestamp = finalCoin.SK;
         formattedCoin.symbol = formattedCoin.symbol ?? finalCoin.Item.symbol;
       }
       if (
         Math.abs(
           (timestampRequested ?? getCurrentUnixTimestamp()) -
-            formattedCoin.timestamp,
+          formattedCoin.timestamp,
         ) < searchWidth
       )
         PKTransforms[coin.PK].forEach((coinName) => {

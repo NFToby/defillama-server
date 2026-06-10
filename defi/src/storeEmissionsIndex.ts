@@ -1,7 +1,11 @@
-import fetch from "node-fetch";
 import { getR2, storeR2JSONString } from "./utils/r2";
+import { fetchCurrentPrices, fetchMcaps } from "./utils/coinsApi";
 import { sendMessage } from "./utils/discord";
 import PromisePool from "@supercharge/promise-pool";
+import { protocolsById } from "./protocols/data";
+import parentProtocols from "./protocols/parentProtocols";
+import { sluggifyString } from "./utils/sluggify";
+import { buildHomepageUnlocksSummary, collectHomepageUnlockCoinIds } from "./homepage/unlocksSummary";
 
 type ProtocolData = {
   token: string;
@@ -9,6 +13,7 @@ type ProtocolData = {
   symbol?: string;
   sources: string[];
   protocolId?: string;
+  protocolSlug?: string;
   name: string;
   circSupply: number;
   circSupply30d?: number;
@@ -25,6 +30,22 @@ type ProtocolData = {
   unlockEvents?: any;
   unlocksPerDay: number;
 };
+
+type HomepagePriceMap = Record<string, { price?: number | null; symbol?: string | null }>;
+
+const parentSlugById: Record<string, string> = {};
+for (const pp of parentProtocols) {
+  parentSlugById[pp.id] = sluggifyString(pp.name);
+}
+
+function getProtocolSlug(protocolId: string | null): string | undefined {
+  if (!protocolId) return undefined;
+  if (parentSlugById[protocolId]) return parentSlugById[protocolId];
+  const p = protocolsById[protocolId];
+  if (!p) return undefined;
+  if (p.parentProtocol) return parentSlugById[p.parentProtocol] ?? sluggifyString(p.name);
+  return sluggifyString(p.name);
+}
 
 const fetchProtocolData = async (protocols: string[]): Promise<ProtocolData[]> => {
   const protocolsData: ProtocolData[] = [];
@@ -88,12 +109,11 @@ const fetchProtocolData = async (protocols: string[]): Promise<ProtocolData[]> =
       const nextUnlockIndex = formattedData.findIndex(([date]) => Number(date) > now);
 
       function getCircSupplyAtIndex(index: number): number {
-        if (index == -1) return maxSupply;
         let supply: number = 0;
         (res.documentedData?.data ?? res.data).forEach(
           (item: { data: Array<{ timestamp: number; unlocked: number }> }) => {
             if (item.data == null) return;
-            supply += item.data[index].unlocked;
+            supply += item.data.at(index).unlocked;
           }
         );
         return supply;
@@ -105,10 +125,12 @@ const fetchProtocolData = async (protocols: string[]): Promise<ProtocolData[]> =
       const circSupply30d = getCircSupplyAtIndex(index30dAgo);
       const unlocksPerDay = formattedData[nextUnlockIndex]?.[1] - formattedData[nextUnlockIndex - 1]?.[1];
 
+      const protocolId = res.metadata.protocolIds?.[0] ?? null;
       protocolsData.push({
         token: res.metadata.token,
-        sources: res.metadata.sources,
-        protocolId: res.metadata.protocolIds?.[0] ?? null,
+        sources: [],
+        protocolId,
+        protocolSlug: getProtocolSlug(protocolId),
         name: res.name,
         circSupply,
         circSupply30d,
@@ -145,15 +167,11 @@ const fetchCoinsApiData = async (protocols: ProtocolData[]): Promise<void> => {
       .map((p: ProtocolData) => `coingecko:${p.gecko_id}`);
 
     const [tokenPrices, mcapRes] = await Promise.all([
-      fetch(`https://coins.llama.fi/prices/current/${tokens}?searchWidth=4h?apikey=${process.env.COINS_KEY}`).then(
-        (res) => res.json()
-      ),
-      fetch(`https://coins.llama.fi/mcaps?apikey=${process.env.COINS_KEY}`, {
-        method: "POST",
-        body: JSON.stringify({
-          coins,
-        }),
-      }).then((r) => r.json()),
+      fetchCurrentPrices(tokens.split(",").filter(Boolean), {
+        searchWidth: "4h",
+        legacyApiKey: process.env.COINS_KEY,
+      }),
+      fetchMcaps(coins, { legacyApiKey: process.env.COINS_KEY }),
     ]);
 
     protocols.map((p: ProtocolData) => {
@@ -165,6 +183,83 @@ const fetchCoinsApiData = async (protocols: ProtocolData[]): Promise<void> => {
     });
   }
 };
+
+function isFinitePositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function normalizeCoinKey(idOrKey: string): string {
+  return idOrKey.startsWith("coingecko:") ? idOrKey : `coingecko:${idOrKey}`;
+}
+
+function addTokenlistPrice({
+  prices,
+  requestedCoinIds,
+  idOrKey,
+  entry,
+}: {
+  prices: HomepagePriceMap;
+  requestedCoinIds: Set<string>;
+  idOrKey: string;
+  entry: unknown;
+}) {
+  if (!entry || typeof entry !== "object") return;
+  const coinKey = normalizeCoinKey(idOrKey);
+  if (!requestedCoinIds.has(coinKey)) return;
+
+  const price = (entry as { current_price?: unknown }).current_price;
+  if (!isFinitePositiveNumber(price)) return;
+
+  const symbol = (entry as { symbol?: unknown }).symbol;
+  prices[coinKey] = {
+    price,
+    symbol: typeof symbol === "string" && symbol ? symbol.toUpperCase() : null,
+  };
+}
+
+const fetchTokenlistHomepagePrices = async (coinIds: string[]): Promise<HomepagePriceMap> => {
+  const requestedCoinIds = new Set(coinIds);
+  const prices: HomepagePriceMap = {};
+  const response = await getR2("tokenlist/sorted.json");
+  const tokenlist = response.body ? JSON.parse(response.body) : null;
+
+  if (Array.isArray(tokenlist)) {
+    for (const entry of tokenlist) {
+      if (!entry || typeof entry !== "object") continue;
+      const id = (entry as { id?: unknown }).id;
+      if (typeof id !== "string" || !id) continue;
+      addTokenlistPrice({ prices, requestedCoinIds, idOrKey: id, entry });
+    }
+  } else if (tokenlist && typeof tokenlist === "object") {
+    for (const [idOrKey, entry] of Object.entries(tokenlist)) {
+      addTokenlistPrice({ prices, requestedCoinIds, idOrKey, entry });
+    }
+  }
+
+  return prices;
+};
+
+const fetchHomepageUnlockPrices = async (protocols: ProtocolData[], nowSec: number) => {
+  const coinIds = collectHomepageUnlockCoinIds({ protocols, nowSec });
+  const prices = await fetchTokenlistHomepagePrices(coinIds).catch((error) => {
+    console.error("Failed to fetch tokenlist prices for homepage unlocks summary", error);
+    return {} as HomepagePriceMap;
+  });
+  const missingCoinIds = coinIds.filter((coinId) => !isFinitePositiveNumber(prices[coinId]?.price));
+  const step = 1000;
+
+  for (let i = 0; i < missingCoinIds.length; i += step) {
+    const chunk = missingCoinIds.slice(i, i + step);
+    const response = await fetchCurrentPrices(chunk, {
+      searchWidth: "4h",
+      legacyApiKey: process.env.COINS_KEY,
+    });
+    Object.assign(prices, response.coins);
+  }
+
+  return prices;
+};
+
 const fetchProtocolEmissionData = (protocol: ProtocolData) => {
   let price = protocol.tokenPrice ? protocol.tokenPrice[0] : undefined;
   if (price) price = price.price;
@@ -175,8 +270,20 @@ const fetchProtocolEmissionData = (protocol: ProtocolData) => {
 };
 export default async function handler(): Promise<void> {
   try {
+    const nowSec = Math.floor(Date.now() / 1000);
     const allProtocols = (await getR2(`emissionsProtocolsList`).then((res) => JSON.parse(res.body!))) as string[];
     const data: ProtocolData[] = await fetchProtocolData(allProtocols);
+    try {
+      const prices = await fetchHomepageUnlockPrices(data, nowSec);
+      const summary = buildHomepageUnlocksSummary({ protocols: data, prices, nowSec });
+      await storeR2JSONString("homepage/unlocks-summary.json", JSON.stringify(summary), 60 * 60);
+    } catch (e) {
+      try {
+        await sendMessage(`Store homepage unlocks summary error: ${e}`, process.env.UNLOCKS_WEBHOOK!);
+      } catch (notifyError) {
+        console.error("Failed to notify homepage unlocks summary error", notifyError);
+      }
+    }
     await fetchCoinsApiData(data);
     data.forEach(fetchProtocolEmissionData)
     await storeR2JSONString("emissionsIndex", JSON.stringify({ data: data.sort((a, b) => b.mcap - a.mcap) }));

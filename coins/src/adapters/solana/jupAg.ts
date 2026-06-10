@@ -4,7 +4,10 @@ import { Write } from '../utils/dbInterfaces';
 import { getLavaTokens } from './util/lavarage'
 import { getConnection } from './utils'
 import { getTokenSymbolMap } from './util/tokenMetadata';
-import { sliceIntoChunks } from '@defillama/sdk/build/util';
+
+import * as sdk from '@defillama/sdk'
+const { sliceIntoChunks, } = sdk.util
+
 import axios from 'axios'
 import { addToDBWritesList } from '../utils/database';
 
@@ -17,7 +20,6 @@ const whitelistedTokens = new Set([
   'B8GKqTDGYc7F6udTHjYeazZ4dFCRkrwK2mBQNS4igqTv',
   'ALTP6gug9wv5mFtx2tSU1YYZ1NrEc2chDdMPoJA8f8pu',
   'AVw2QGVkXJPRPRjLAceXVoLqU5DVtJ53mdgMXp14yGit',
-  'FJug3z58gssSTDhVNkTse5fP8GRZzuidf9SRtfB2RhDe', 
   'GoLDppdjB1vDTPSGxyMJFqdnj134yH6Prg9eqsGDiw6A', 
   '2HehXG149TXuVptQhbiWAWDjbbuCsXSAtLTB5wc2aajK'
 ])
