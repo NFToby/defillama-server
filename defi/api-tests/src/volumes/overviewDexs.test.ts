@@ -10,6 +10,7 @@ import {
 } from '../../utils/testHelpers';
 import { validate } from '../../utils/validation';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.VOLUMES.BASE_URL);
 
@@ -26,6 +27,10 @@ describe('Volumes API - Overview DEXs', () => {
     overviewResponse = r1;
     chainResponse = r2;
   }, 30000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(overviewResponse);
+  });
 
   describe('All DEXs Overview', () => {
     describe('Basic Response Validation', () => {
@@ -69,6 +74,16 @@ describe('Volumes API - Overview DEXs', () => {
         if (overviewResponse.data.total7d !== null && overviewResponse.data.total7d !== undefined) {
           expectValidNumber(overviewResponse.data.total7d);
           expectNonNegativeNumber(overviewResponse.data.total7d);
+        }
+
+        if (overviewResponse.data.total1y !== null && overviewResponse.data.total1y !== undefined) {
+          expectValidNumber(overviewResponse.data.total1y);
+          expectNonNegativeNumber(overviewResponse.data.total1y);
+        }
+
+        if (overviewResponse.data.annualized1y !== null && overviewResponse.data.annualized1y !== undefined) {
+          expectValidNumber(overviewResponse.data.annualized1y);
+          expectNonNegativeNumber(overviewResponse.data.annualized1y);
         }
       });
 

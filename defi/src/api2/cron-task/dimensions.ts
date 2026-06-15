@@ -9,7 +9,7 @@ import { protocolsById } from "../../protocols/data";
 import { parentProtocolsById } from "../../protocols/parentProtocols";
 import { addAggregateRecords, getDimensionsCacheV2, storeDimensionsCacheV2, storeDimensionsMetadata, transformDimensionRecord, validateAggregateRecords, } from "../utils/dimensionsUtils";
 import { storeEmissionsCache, } from "../utils/emissionsUtils";
-import { getNextTimeS, getTimeSDaysAgo, getUnixTimeNow, timeSToUnix, unixTimeToTimeS } from "../utils/time";
+import { getNextTimeS, getTimeSDaysAgo, getUnixTimeNow, timeSToUnix } from "../utils/time";
 
 import { runWithRuntimeLogging, cronNotifyOnDiscord, tableToString } from "../utils";
 import * as sdk from '@defillama/sdk'
@@ -248,7 +248,7 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
     }
 
     adapterData.summaries = summaries
-    adapterData.allChains = Object.keys(chainMappingToVal).sort((a, b) => chainMappingToVal[b] - chainMappingToVal[a])
+    adapterData.allChains = Object.keys(chainMappingToVal).filter((chain) => chain !== "Off Chain").sort((a, b) => chainMappingToVal[b] - chainMappingToVal[a])
     adapterData.lastUpdated = getUnixTimeNow()
     // console.timeEnd(timeKey3)
 
@@ -369,7 +369,7 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
               summary.chartBreakdown[timeS] = {}
             }
 
-            summary.chart[timeS] += value
+            summary.chart[timeS] += getNonNegativeValue(value)
             summary.chartBreakdown[timeS][protocolName] = value
           }
 
@@ -425,10 +425,10 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
                 const categorySummary = summary.categorySummary[category]
                 if (!categorySummary.earliestTimestamp || timestamp < categorySummary.earliestTimestamp) categorySummary.earliestTimestamp = timestamp
                 // categorySummary total chart
-                categorySummary.chart[timeS] = (categorySummary.chart[timeS] ?? 0) + value;
+                categorySummary.chart[timeS] = (categorySummary.chart[timeS] ?? 0) + getNonNegativeValue(value);
                 // categorySummary protocol breakdown chart
                 categorySummary.chartBreakdown[timeS] = categorySummary.chartBreakdown[timeS] || {};
-                categorySummary.chartBreakdown[timeS][protocolName] = (categorySummary.chartBreakdown[timeS][protocolName] ?? 0) + value;
+                categorySummary.chartBreakdown[timeS][protocolName] = (categorySummary.chartBreakdown[timeS][protocolName] ?? 0) + getNonNegativeValue(value);
                 
                 // add to categorySummary.chainSummary
                 summary.categorySummary[category].chainSummary = summary.categorySummary[category].chainSummary || {};
@@ -436,10 +436,10 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
                 const categoryChainSummary = summary.categorySummary[category].chainSummary[chain]
                 if (!categoryChainSummary.earliestTimestamp || timestamp < categoryChainSummary.earliestTimestamp) categoryChainSummary.earliestTimestamp = timestamp
                 // categorySummary.chainSummary total chart
-                categoryChainSummary.chart[timeS] = (categoryChainSummary.chart[timeS] ?? 0) + value;
+                categoryChainSummary.chart[timeS] = (categoryChainSummary.chart[timeS] ?? 0) + getNonNegativeValue(value);
                 // categorySummary.chainSummary breakdown by protocol chart
                 categoryChainSummary.chartBreakdown[timeS] = categoryChainSummary.chartBreakdown[timeS] || {};
-                categoryChainSummary.chartBreakdown[timeS][protocolName] = (categoryChainSummary.chartBreakdown[timeS][protocolName] ?? 0) + value;
+                categoryChainSummary.chartBreakdown[timeS][protocolName] = (categoryChainSummary.chartBreakdown[timeS][protocolName] ?? 0) + getNonNegativeValue(value);
               }
             }
 
@@ -452,7 +452,7 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
             if (!chainSummary.earliestTimestamp || timestamp < chainSummary.earliestTimestamp)
               chainSummary.earliestTimestamp = timestamp
 
-            chainSummary.chart[timeS] = (chainSummary.chart[timeS] ?? 0) + value
+            chainSummary.chart[timeS] = (chainSummary.chart[timeS] ?? 0) + getNonNegativeValue(value)
             if (!chainSummary.chartBreakdown[timeS]) chainSummary.chartBreakdown[timeS] = {}
             chainSummary.chartBreakdown[timeS][protocolName] = value
           })
@@ -540,7 +540,7 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
               if (!protocolSummary.chainSummary![chain]) protocolSummary.chainSummary![chain] = initSummaryItem(true)
               const chainSummary = protocolSummary.chainSummary![chain] as ProtocolSummary
               if (!chainSummary.totalAllTime) chainSummary.totalAllTime = 0
-              chainSummary.totalAllTime += value
+              chainSummary.totalAllTime += getNonNegativeValue(value)
               if ((chainsTotal as any)[chain])
                 chainSummary.totalAllTime = (chainsTotal as any)[chain]
             })
@@ -559,6 +559,24 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
             summary.monthlyAverage1y = (summary.total1y / _protocolData.lastOneYearData.length) * 30.44
           }
         });
+        // annualized1y: a separate "annualized" basis that does NOT touch total1y (which stays the
+        // observed trailing-twelve-month sum). >=1y of data -> actual TTM; <1y of data -> annualize
+        // the available history to a 12-month run-rate (totalAllTime/coveredDays*365); null when it
+        // can't be computed, so consumers can fall back to total30d * 12.2. coveredDays spans the
+        // protocol's first to last finalized daily record (the in-progress current UTC day is
+        // excluded from these sums by design).
+        {
+          const coveredDays = getCoveredDays(Object.keys(protocol.records))
+          const setAnnualized1y = (summary: any) => {
+            summary.annualized1y = computeAnnualizedTotal1y({ coveredDays, total1y: summary.total1y, totalAllTime: summary.totalAllTime })
+          }
+          setAnnualized1y(protocolSummary)
+          // Only set per-chain annualized1y when chain summaries are actually maintained. For parent
+          // protocols (skipChainSummary) the chainSummary only carries a partial totalAllTime, so a
+          // chain run-rate computed over the parent's full coveredDays would be misleading.
+          if (!skipChainSummary)
+            Object.values(protocolSummary.chainSummary ?? {}).forEach((chainSummary: any) => setAnnualized1y(chainSummary))
+        }
         // change_1d
         protocolSummaryAction(protocolSummary, (summary: any) => {
           if (typeof summary.total24h === 'number' && typeof summary.total48hto24h === 'number' && summary.total48hto24h !== 0)
@@ -675,7 +693,7 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
           const chainSummary = summary.chainSummary![chain]
 
           if (!chainSummary[chainSummaryKey!]) chainSummary[chainSummaryKey!] = 0
-          chainSummary[chainSummaryKey!] += value
+          chainSummary[chainSummaryKey!] += getNonNegativeValue(value)
         })
       })
     }
@@ -693,12 +711,12 @@ ${tableToString(invalidFinancialStatementRecords, ['protocol', 'timeframe', 'key
           summaries[recordType].categorySummary[category] = summaries[recordType].categorySummary[category] || initSummaryItem();
           
           const categorySummary = summaries[recordType].categorySummary[category] as any;
-          categorySummary[summaryKey] = (categorySummary[summaryKey] ?? 0) + value; // add total value to category
+          categorySummary[summaryKey] = (categorySummary[summaryKey] ?? 0) + getNonNegativeValue(value); // add total value to category
           
           Object.entries(chains).forEach(([chain, chainValue]: any) => {
             categorySummary.chainSummary = categorySummary.chainSummary || {};
             categorySummary.chainSummary[chain] = categorySummary.chainSummary[chain] || initSummaryItem(true);
-            categorySummary.chainSummary[chain][summaryKey] = (categorySummary.chainSummary[chain][summaryKey] ?? 0) + chainValue;
+            categorySummary.chainSummary[chain][summaryKey] = (categorySummary.chainSummary[chain][summaryKey] ?? 0) + getNonNegativeValue(chainValue);
           })
         }
       })
@@ -1006,4 +1024,39 @@ function getSurroundingKeysExcludingCurrent<T>(array: T[], currentIndex: number,
   const beforeCurrent = array.slice(startIndex, currentIndex);
   const afterCurrent = array.slice(currentIndex + 1, endIndex + 1);
   return beforeCurrent.concat(afterCurrent);
+}
+
+function getNonNegativeValue(value: number) {
+  return value > 0 ? value : 0
+}
+
+// Number of days spanned by a set of daily-record timeS keys, first to last (inclusive).
+// This is the coverage window used to decide whether total1y is a full trailing-twelve-month
+// figure or only a partial history that needs to be annualized to a run-rate.
+export function getCoveredDays(recordTimeKeys: string[]): number {
+  if (!recordTimeKeys.length) return 0
+  const unixDays = recordTimeKeys.map(timeSToUnix).sort((a, b) => a - b)
+  return Math.round((unixDays[unixDays.length - 1] - unixDays[0]) / 86400) + 1
+}
+
+// Annualized basis used to overload total1y:
+//   - >=1y of data  -> actual trailing-twelve-month total (TTM)
+//   - <1y of data   -> annualize the available history to a 12-month run-rate
+//                       (totalAllTime / coveredDays * 365)
+//   - otherwise      -> null, so callers fall back to total30d * 12.2
+export function computeAnnualizedTotal1y({ coveredDays, total1y, totalAllTime }: {
+  coveredDays: number,
+  total1y?: number | null,
+  totalAllTime?: number | null,
+}): number | null {
+  if (!Number.isFinite(coveredDays) || coveredDays <= 0) return null
+
+  let annualized: number | null = null
+  if (coveredDays >= 365 && total1y != null) {
+    annualized = total1y                              // TTM (actual)
+  } else if (totalAllTime != null) {
+    annualized = (totalAllTime / coveredDays) * 365   // run-rate
+  }
+
+  return Number.isFinite(annualized as number) ? annualized : null
 }

@@ -26,8 +26,7 @@ const validMetricTypesSet = new Set(Object.values(AdapterType)) as Set<string>
 const validRecordTypesSet = new Set(Object.values(AdaptorRecordType)) as Set<string>
 const unixStartOfTodayTimestamp = timeSToUnix(getTimeSDaysAgo(0))
 const protocolInfoKeys = ['defillamaId', 'name', 'displayName', 'module', 'category', 'logo', 'chains', 'protocolType', 'methodologyURL', 'methodology', 'childProtocols', 'parentProtocol', 'slug', 'linkedProtocols', 'doublecounted', 'breakdownMethodology', 'hasLabelBreakdown',]
-const protocolDataKeys = ['total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total60dto30d', 'total30d', 'total1y', 'totalAllTime', 'average1y', 'monthlyAverage1y', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'breakdown24h', 'breakdown30d', 'total14dto7d', 'total7DaysAgo', 'total30DaysAgo']
-const protocolChainBreakdownKeys = [
+const protocolChainBreakdownKeys : string[] = [
   'total24h',
   'total48hto24h',
   'total7d',
@@ -35,6 +34,7 @@ const protocolChainBreakdownKeys = [
   'total30d',
   'total60dto30d',
   'total1y',
+  'annualized1y',
   'total7DaysAgo',
   'total30DaysAgo',
   'totalAllTime',
@@ -47,6 +47,10 @@ const protocolChainBreakdownKeys = [
   'change_30dover30d',
 ] as const
 
+const activeUserCountKeys = ['total24h', 'average1y', 'change_1d', 'change_7d', 'change_1m']
+const protocolBreakdownKeys = ['breakdown24h', 'breakdown30d']
+const activeUsersBreakdownKeys = ['breakdown24h']
+
 type ProtocolRouteRow = {
   id: string,
   info: any,
@@ -58,6 +62,19 @@ type ProtocolRouteIndex = {
   byChain: Map<string, ProtocolRouteRow[]>,
   byCategory: Map<string, ProtocolRouteRow[]>,
   byCategoryChain: Map<string, Map<string, ProtocolRouteRow[]>>,
+}
+
+function getDimensionMetricKeys(keys:string[], recordType: AdaptorRecordType) {
+  const allowedKeys : string[] = recordType === AdaptorRecordType.dailyActiveUsers ? activeUserCountKeys : protocolChainBreakdownKeys
+  return keys.filter(key => allowedKeys.includes(key))
+}
+
+function getProtocolBreakdownKeys(recordType: AdaptorRecordType) {
+  return recordType === AdaptorRecordType.dailyActiveUsers ? activeUsersBreakdownKeys : protocolBreakdownKeys
+}
+
+function getProtocolDataKeys(recordType: AdaptorRecordType) {
+  return [...getDimensionMetricKeys(protocolChainBreakdownKeys, recordType), ...getProtocolBreakdownKeys(recordType)]
 }
 
 function getEventParameters(req: HyperExpress.Request, isSummary = true) {
@@ -172,11 +189,13 @@ function getProtocolCategories(info: any): Array<string> {
 }
 
 function formatProtocolRows({
-  rows, chain,
+  rows, chain, recordType,
 }: {
   rows: ProtocolRouteRow[],
   chain?: string,
+  recordType: AdaptorRecordType,
 }) {
+  const protocolDataKeys = getProtocolDataKeys(recordType)
   let protocolTotalAllTimeSum = 0
 
   const protocols = rows.map(({ summary: rootSummary, info }: ProtocolRouteRow) => {
@@ -190,7 +209,7 @@ function formatProtocolRows({
     if (!summary && !info) return null
 
     if (!summary?.recordCount) return null; // if there are no data points, we should filter out the protocol
-    if (summary?.totalAllTime) protocolTotalAllTimeSum += summary.totalAllTime
+    if (recordType !== AdaptorRecordType.dailyActiveUsers && summary?.totalAllTime) protocolTotalAllTimeSum += summary.totalAllTime
 
     protocolInfoKeys.filter(key => info?.[key]).forEach(key => res[key] = info?.[key])
     res.id = res.defillamaId ?? res.id
@@ -221,14 +240,15 @@ async function getOverviewProcess({
   fixChartLastRecord(response)
 
   response.breakdown24h = null
-  response.breakdown30d = null
+  if (recordType !== AdaptorRecordType.dailyActiveUsers)
+    response.breakdown30d = null
   response.chain = chain ?? null
   if (response.chain)
     response.chain = getChainLabelFromKey(response.chain)
   response.allChains = allChains
 
   // These fields are for the global/chain level data
-  const responseKeys = ['total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total60dto30d', 'total30d', 'total1y', 'average1y', 'monthlyAverage1y', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'total7DaysAgo', 'total30DaysAgo', 'totalAllTime']
+  const responseKeys = getDimensionMetricKeys(protocolChainBreakdownKeys, recordType)
 
   responseKeys.forEach(key => {
     response[key] = summary[key]
@@ -236,14 +256,16 @@ async function getOverviewProcess({
   response.change_1d = getPercentage(summary.total24h, summary.total48hto24h)
   response.change_7d = getPercentage(summary.total24h, summary.total7DaysAgo)
   response.change_1m = getPercentage(summary.total24h, summary.total30DaysAgo)
-  response.change_7dover7d = getPercentage(summary.total7d, summary.total14dto7d)
-  response.change_30dover30d = getPercentage(summary.total30d, summary.total60dto30d)
+  if (recordType !== AdaptorRecordType.dailyActiveUsers){
+    response.change_7dover7d = getPercentage(summary.total7d, summary.total14dto7d)
+    response.change_30dover30d = getPercentage(summary.total30d, summary.total60dto30d)
+  }
 
   routeIndex = routeIndex ?? buildProtocolRouteIndex(protocolSummaries, recordType)
   const rows = chain ? routeIndex.byChain.get(chain) ?? [] : routeIndex.all
-  const { protocols, protocolTotalAllTimeSum } = formatProtocolRows({ rows, chain })
+  const { protocols, protocolTotalAllTimeSum } = formatProtocolRows({ rows, chain, recordType })
   response.protocols = protocols
-  if (!response.totalAllTime) response.totalAllTime = protocolTotalAllTimeSum
+  if (recordType !== AdaptorRecordType.dailyActiveUsers && !response.totalAllTime) response.totalAllTime = protocolTotalAllTimeSum
 
   return response
 }
@@ -268,7 +290,7 @@ async function getCategoryData({ recordType, cacheData, category, chain, routeIn
   response.allChains = Object.keys(summaries[recordType]?.categorySummary[category].chainSummary).map(i => getChainLabelFromKey(i));
 
   // These fields are for the category level data
-  const responseKeys = ['total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total60dto30d', 'total30d', 'total1y', 'average1y', 'monthlyAverage1y', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'total7DaysAgo', 'total30DaysAgo', 'totalAllTime']
+  const responseKeys = getDimensionMetricKeys(protocolChainBreakdownKeys, recordType)
 
   responseKeys.forEach(key => {
     response[key] = summary[key]
@@ -276,14 +298,16 @@ async function getCategoryData({ recordType, cacheData, category, chain, routeIn
   response.change_1d = getPercentage(summary.total24h, summary.total48hto24h)
   response.change_7d = getPercentage(summary.total24h, summary.total7DaysAgo)
   response.change_1m = getPercentage(summary.total24h, summary.total30DaysAgo)
-  response.change_7dover7d = getPercentage(summary.total7d, summary.total14dto7d)
-  response.change_30dover30d = getPercentage(summary.total30d, summary.total60dto30d)
+  if (recordType !== AdaptorRecordType.dailyActiveUsers){
+    response.change_7dover7d = getPercentage(summary.total7d, summary.total14dto7d)
+    response.change_30dover30d = getPercentage(summary.total30d, summary.total60dto30d)
+  }
 
   routeIndex = routeIndex ?? buildProtocolRouteIndex(protocolSummaries, recordType)
   const rows = chain ? routeIndex.byCategoryChain.get(category)?.get(chain) ?? [] : routeIndex.byCategory.get(category) ?? []
-  const { protocols, protocolTotalAllTimeSum } = formatProtocolRows({ rows, chain })
+  const { protocols, protocolTotalAllTimeSum } = formatProtocolRows({ rows, chain, recordType })
   response.protocols = protocols
-  if (!response.totalAllTime) response.totalAllTime = protocolTotalAllTimeSum
+  if (recordType !== AdaptorRecordType.dailyActiveUsers && !response.totalAllTime) response.totalAllTime = protocolTotalAllTimeSum
 
   return response
 }
@@ -337,7 +361,7 @@ async function getProtocolDataHandler({
   const response: any = { ...info }
   const records = _records ?? {}
 
-  const summaryKeys = ['total24h', 'total48hto24h', 'total7d', 'total30d', 'totalAllTime',]
+  const summaryKeys = getDimensionMetricKeys(['total24h', 'total48hto24h', 'total7d', 'total30d', 'total1y', 'annualized1y', 'totalAllTime'], recordType)
   summaryKeys.forEach(key => response[key] = summary[key])
 
   const chart = {} as any
@@ -410,7 +434,7 @@ async function getProtocolDataHandler({
       const chainLabel = getChainLabelFromKey(chainKey)
       const formattedChainData: IJSON<number | null> = {}
 
-      protocolChainBreakdownKeys.forEach((key) => {
+      getDimensionMetricKeys(protocolChainBreakdownKeys, recordType).forEach((key) => {
         if (chainData?.[key] !== undefined) formattedChainData[key] = chainData[key]
       })
 
@@ -495,7 +519,7 @@ export function getDimensionOverviewRoutes(route: 'overview' | 'chart' | 'chart-
     if (Object.keys(DefaultAdapterTypeCategoryMap).includes(adaptorType)) {
       return await returnSubCategoryData();
     }
-    
+
     if (route === 'chart-chain-breakdown') {
       const routeFile = `dimensions/${adaptorType}/${dataType}/chain-total-data-chart`
       return fileResponse(routeFile, res)
@@ -505,9 +529,9 @@ export function getDimensionOverviewRoutes(route: 'overview' | 'chart' | 'chart-
       const routeFile = `dimensions/${routeSubPath}`
 
       const data = await readRouteData(routeFile)
-
+      
       if (!data) return errorResponse(res, 'Internal server error', { statusCode: 500 })
-
+      
       if (route === 'chart-protocol-breakdown') {
         return successResponse(res, data.totalDataChartBreakdown)
       } else {
@@ -531,13 +555,8 @@ export function getDimensionOverviewRoutes(route: 'overview' | 'chart' | 'chart-
       if (route === 'overview') routeFileExt = '';
       else routeFileExt += route;
       const routeSubPath = `${adaptorType}/${dataType}-category/${filterCategory}-${routeFileExt}`;
-      const routeFile = `dimensions/${routeSubPath}`; 
-      
-      const data = await readRouteData(routeFile);
-  
-      if (!data) return errorResponse(res, 'Internal server error', { statusCode: 500 });
-  
-      return successResponse(res, data);
+      const routeFile = `dimensions/${routeSubPath}`;
+      return fileResponse(routeFile, res)
     }
   }
 }
@@ -583,12 +602,7 @@ export function getDimensionChainRoutes(route: 'overview' | 'chart' | 'chart-pro
       else routeFileExt += route;
       const routeSubPath = `${adaptorType}/${dataType}-category/${filterCategory}-chain/${chainKeyFilter}-${routeFileExt}`;
       const routeFile = `dimensions/${routeSubPath}`;
-      
-      const data = await readRouteData(routeFile);
-  
-      if (!data) return errorResponse(res, 'Internal server error', { statusCode: 500 });
-  
-      return successResponse(res, data);
+      return fileResponse(routeFile, res)
     }
   }
 }
@@ -603,13 +617,8 @@ export function getDimensionCategoryRoutes(route: 'overview' | 'chart' | 'chart-
     if (route === 'overview') routeFileExt = '';
     else routeFileExt += route;
     const routeSubPath = `${adaptorType}/${dataType}-category/${category}-${routeFileExt}`;
-    const routeFile = `dimensions/${routeSubPath}`; 
-    
-    const data = await readRouteData(routeFile);
-
-    if (!data) return errorResponse(res, 'Internal server error', { statusCode: 500 });
-
-    return successResponse(res, data);
+    const routeFile = `dimensions/${routeSubPath}`;
+    return fileResponse(routeFile, res)
   }
 }
 
@@ -623,13 +632,8 @@ export function getDimensionCategoryChainRoutes(route: 'overview' | 'chart' | 'c
     if (route === 'overview') routeFileExt = '';
     else routeFileExt += route;
     const routeSubPath = `${adaptorType}/${dataType}-category/${category}-chain/${chainKeyFilter}-${routeFileExt}`;
-    const routeFile = `dimensions/${routeSubPath}`; 
-    
-    const data = await readRouteData(routeFile);
-
-    if (!data) return errorResponse(res, 'Internal server error', { statusCode: 500 });
-
-    return successResponse(res, data);
+    const routeFile = `dimensions/${routeSubPath}`;
+    return fileResponse(routeFile, res)
   }
 }
 
@@ -647,13 +651,7 @@ export function getDimensionProtocolRoutes(route: 'overview' | 'chart' | 'chart-
 
     const routeSubPath = `${adaptorType}/${dataType}-protocol/${protocolSlug}${protocolFileExt}`
     const routeFile = `dimensions/${routeSubPath}`
-    const errorMessage = `${adaptorType[0].toUpperCase()}${adaptorType.slice(1)} for ${protocolName} not found, please visit /overview/${adaptorType} to see available protocols`
-
-    const data = await readRouteData(routeFile)
-    if (!data)
-      return errorResponse(res, errorMessage)
-
-    return successResponse(res, data)
+    return fileResponse(routeFile, res)
   }
 }
 
@@ -846,11 +844,13 @@ export async function generateDimensionsResponseFiles(cache: Record<AdapterType,
 
         if (!dimChainsAggData[chain]) dimChainsAggData[chain] = {}
         if (!dimChainsAggData[chain][adapterType]) dimChainsAggData[chain][adapterType] = {}
-        dimChainsAggData[chain][adapterType][recordType] = {
-          '24h': data.total24h,
-          '7d': data.total7d,
-          '30d': data.total30d,
-        }
+        dimChainsAggData[chain][adapterType][recordType] = recordType === AdaptorRecordType.dailyActiveUsers
+          ? { '24h': data.total24h }
+          : {
+            '24h': data.total24h,
+            '7d': summaries?.[recordType]?.chainSummary?.[chain]?.total7d,
+            '30d': data.total30d,
+          }
       }
 
       // sort by date
@@ -870,10 +870,12 @@ export async function generateDimensionsResponseFiles(cache: Record<AdapterType,
           
           dimCategoriesAggData[category] = dimCategoriesAggData[category] || { chains: {} };
           dimCategoriesAggData[category][adapterType] = dimCategoriesAggData[category][adapterType] || {};
-          dimCategoriesAggData[category][adapterType][recordType] = dimCategoriesAggData[category][adapterType][recordType] || { '24h': 0, '7d': 0, '30d': 0 };
+          dimCategoriesAggData[category][adapterType][recordType] = dimCategoriesAggData[category][adapterType][recordType] || (recordType === AdaptorRecordType.dailyActiveUsers ? { '24h': 0 } : { '24h': 0, '7d': 0, '30d': 0 });
           dimCategoriesAggData[category][adapterType][recordType]['24h'] += categoryData.total24h;
-          dimCategoriesAggData[category][adapterType][recordType]['7d'] += categoryData.total7d;
-          dimCategoriesAggData[category][adapterType][recordType]['30d'] += categoryData.total30d;
+          if (recordType !== AdaptorRecordType.dailyActiveUsers) {
+            dimCategoriesAggData[category][adapterType][recordType]['7d'] += summaries?.[recordType]?.categorySummary?.[category]?.total7d ?? 0;
+            dimCategoriesAggData[category][adapterType][recordType]['30d'] += categoryData.total30d;
+          }
           
           // store category data per chain
           const chartPerChainItems: Record<string, any> = {};
@@ -891,10 +893,12 @@ export async function generateDimensionsResponseFiles(cache: Record<AdapterType,
             
             dimCategoriesAggData[category].chains[chain] = dimCategoriesAggData[category].chains[chain] || {};
             dimCategoriesAggData[category].chains[chain][adapterType] = dimCategoriesAggData[category].chains[chain][adapterType] || {};
-            dimCategoriesAggData[category].chains[chain][adapterType][recordType] = dimCategoriesAggData[category].chains[chain][adapterType][recordType] || { '24h': 0, '7d': 0, '30d': 0 };
+            dimCategoriesAggData[category].chains[chain][adapterType][recordType] = dimCategoriesAggData[category].chains[chain][adapterType][recordType] || (recordType === AdaptorRecordType.dailyActiveUsers ? { '24h': 0 } : { '24h': 0, '7d': 0, '30d': 0 });
             dimCategoriesAggData[category].chains[chain][adapterType][recordType]['24h'] += categoryChainData.total24h;
-            dimCategoriesAggData[category].chains[chain][adapterType][recordType]['7d'] += categoryChainData.total7d;
-            dimCategoriesAggData[category].chains[chain][adapterType][recordType]['30d'] += categoryChainData.total30d;
+            if (recordType !== AdaptorRecordType.dailyActiveUsers) {
+              dimCategoriesAggData[category].chains[chain][adapterType][recordType]['7d'] += summaries?.[recordType]?.categorySummary?.[category]?.chainSummary?.[chain]?.total7d ?? 0;
+              dimCategoriesAggData[category].chains[chain][adapterType][recordType]['30d'] += categoryChainData.total30d;
+            }
           }
           
           // store category chart breakdown per chain

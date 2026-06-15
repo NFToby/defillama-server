@@ -4,10 +4,12 @@ import {
   IResponse,
   errorResponse,
 } from "./utils/shared";
-import { getRecordClosestToTimestamp } from "./utils/shared/getRecordClosestToTimestamp";
+import { getRecordClosestToTimestamp } from "./utils/distressedAwareRecord";
 import { quantisePeriod } from "./utils/timestampUtils";
 import { getBasicCoins } from "./utils/getCoinsUtils";
 import { lowercaseAddress } from "./utils/processCoin";
+
+// WARNING: changing this breaks it
 import { runInPromisePool } from "@defillama/sdk/build/generalUtil";
 
 function generateTimestamps(

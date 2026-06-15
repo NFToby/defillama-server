@@ -9,6 +9,7 @@ import {
   expectFreshData,
 } from '../../utils/testHelpers';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.FEES.BASE_URL);
 
@@ -29,6 +30,10 @@ describe('Fees API - Summary Fees', () => {
       responses[protocol] = results[index];
     });
   }, 30000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(responses[testProtocols[0]]);
+  });
 
   describe.each(testProtocols)('Protocol: %s', (protocol) => {
     describe('Basic Response Validation', () => {
@@ -93,6 +98,11 @@ describe('Fees API - Summary Fees', () => {
         if (data.total1y !== null && data.total1y !== undefined) {
           expectValidNumber(data.total1y);
           expectNonNegativeNumber(data.total1y);
+        }
+
+        if (data.annualized1y !== null && data.annualized1y !== undefined) {
+          expectValidNumber(data.annualized1y);
+          expectNonNegativeNumber(data.annualized1y);
         }
 
         if (data.totalAllTime !== null && data.totalAllTime !== undefined) {

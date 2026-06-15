@@ -67,7 +67,11 @@ export const contracts: { [chain: string]: { [token: string]: string } } = {
     USPD: "0x476ef9ac6d8673e220d0e8bc0a810c2dc6a2aa84", 
     yTUSD: '0x73a052500105205d34daf004eab301916da8190f',
     DGLD: "0xa9299c296d7830a99414d1e5546f5171fa01e9c8",
-    USDTC: "0x0f6b862e05a9b528b0002261f9eb616e6c4452e9"
+    BOBO: "0xb90b2a35c65dbc466b04240097ca756ad2005295",  // invalid price
+    USDTC: "0x0f6b862e05a9b528b0002261f9eb616e6c4452e9",
+    USDa: "0x8A60E489004Ca22d775C5F2c657598278d17D9c2",
+    sUSDa: "0x2B66AAdE1e9C062FF411bd47C44E0Ad696d43BD9",
+    H: "0xcf5104D094e3864CfCBDa43B82e1cEFD26A016eB", // hacked 2026-06-08
   },
   // beam: {
   //   WMC: '0xd51bfa777609213a653a2cd067c9a0132a2d316a'
@@ -91,6 +95,13 @@ export const contracts: { [chain: string]: { [token: string]: string } } = {
   },
   klaytn: {
     USDK: "0xd2137fdf10bd9e4e850c17539eb24cfe28777753",
+  },
+  verus: {  // verus bridge is hacked
+    DAI: "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM",
+    MKR: "iCkKJuJScy4Z6NSDK7Mt42ZAB2NEnAE1o4",
+    ETH: "i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X",
+    TBTC: "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU",
+    USDT: "i9oCSqKALwJtcv49xUKS2U2i79h1kX6NEY",
   },
   arbitrum: {
     GOLD: "0xc4be0798e5b5b1C15edA36d9B2D8c1A60717fA92",
@@ -159,7 +170,8 @@ export const contracts: { [chain: string]: { [token: string]: string } } = {
     NEST: "0x98f8669f6481ebb341b522fcd3663f79a3d1a6a7",
     DOT: "0x8d010bf9c26881788b4e6bf5fd1bdc358c8f90b8", // hacked maybe, has insane supply
     USDS: "0xde7d1ce109236b12809c45b23d22f30dba0ef424", // radioshack inflated tvl
-    USDTC: "0x96fb784986284cb6d4a8da6dd50dd7e85ef38f5d"
+    USDTC: "0x96fb784986284cb6d4a8da6dd50dd7e85ef38f5d",
+    H: "0x44f161ae29361e332dea039dfa2f404e0bc5b5cc", // hacked 2026-06-08
   },
   cronos: {
     CRK: "0x065de42e28e42d90c2052a1b49e7f83806af0e1f",
@@ -329,7 +341,10 @@ export const contracts: { [chain: string]: { [token: string]: string } } = {
   coingecko: {
     PREMIO: "premio",
     TFBX: "truefeedbackchain",
+    USDa: "usda-2",
+    USDa_OLD: "usda", // legacy id still referenced by tokenMapping.json
     //solvBTCBBN: "solv-protocol-solvbtc-bbn",
+    HBTC: "huobi-btc", // unverified backing
   },
   bittorrent: {
     WBTT: "0x8d193c6efa90bcff940a98785d1ce9d093d3dc8a",
@@ -348,6 +363,7 @@ export const contracts: { [chain: string]: { [token: string]: string } } = {
     vDOT: "0xbc33b4d48f76d17a1800afcb730e8a6aaada7fe5", // Hyperbridge was hacked
     WANDER: "0xef0fd52e65ddcdc201e2055a94d2abff6ff10a7a",
     AETX: "0xfe0c0b15798b8c9107cd4aa556a87eb031263e8b",
+    BOBO: "0x570b1533f6daa82814b25b62b5c7c4c55eb83947",  // BOBO is mispriced
     SFUND: "0x633e254585ade6e9d40d2a4b8cc2f3769b94cb48",
     clBTC: "0x8d2757ea27aabf172da4cca4e5474c76016e3dc5", // IS NOT BACKED
     DGLD: "0xd02f50e1017f493ffffa70c8fcf09e349e11d6c9", // dropped to 0, coingecko mispriced it
@@ -359,7 +375,12 @@ export const contracts: { [chain: string]: { [token: string]: string } } = {
   },
   sonic: {
     wstkscUSD: "0x896f4D49916aC5cfC36d7a260a7039ba4Ea317b6",
-    ghUSDC: "0xf6bc16b79c469b94cdd25f3e2334dd4fee47a581"
+    ghUSDC: "0xf6bc16b79c469b94cdd25f3e2334dd4fee47a581",
+    vgUSDC: "0xf6f87073cf8929c206a77b0694619dc776f89885",
+    wmetascUSD: "0xcccccccca9fc69a2b32408730011edb3205a93a1",
+    "wmooSiloV2SonicUSDC.e": "0x7870ddfd5aca4e977b2287e9a212bcbe8fc4135a",
+    "bscUSD-46": "0xe6605932e4a686534d19005bb9db0fba1f101272",
+    aprUSDC: "0xcca902f2d3d265151f123d8ce8FdAc38ba9745ed"
   },
   berachain: {
     "pumpBTC.bera": "0x1fCca65fb6Ae3b2758b9b2B394CB227eAE404e1E",
@@ -430,6 +451,25 @@ export const contracts: { [chain: string]: { [token: string]: string } } = {
   btr: {
     SolvBTCm: '0xe04d21d999FaEDf1e72AdE6629e20A11a1ed14FA', // minted bridge token withou backing assets
   },
+  gravity: {
+    // bridge hacked, bridged tokens are unbacked/worthless
+    WETH: "0xf6f832466Cd6C21967E0D954109403f36Bc8ceaA",
+    "USDC.e": "0xfbda5f676cb37624f28265a144a48b0d6e87d3b6",
+    USDT: "0x816e810f9f787d669fb71932deabf6c83781cd48",
+  },
+  aleph_zero: {
+    // bridge hacked, bridged tokens are unbacked/worthless
+    WETH: "0xB3f0eE446723f4258862D949B4c9688e7e7d35d3",
+    "USDC.e": "0x18d25B4e18165c97e1285212e5d1f80eDD6d3Aa7",
+    USDT: "0xD648529D4803d3467bA8850577BEd4e4b8Ae583C",
+  },
+  astar: {
+    // starlay is insolvent
+    lUSDT: '0x430d50963d9635bbef5a2ff27bd0bddc26ed691f',
+    lUSDC: '0xc404e12d3466accb625c67dbab2e1a8a457def3c',
+    lDAI: '0x4dd9c468a44f3fef662c35c1e9a6108b70415c2c',
+    lBUSD: '0xb7ab962c42a8bb443e0362f58a5a43814c573ffb',
+  }
 };
 
 export const distressedAssets = Object.fromEntries(

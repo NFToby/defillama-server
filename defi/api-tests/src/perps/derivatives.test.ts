@@ -6,9 +6,11 @@ import {
   expectSuccessfulResponse,
   expectValidNumber,
   expectNonNegativeNumber,
+  expectFreshData,
 } from '../../utils/testHelpers';
 import { ApiResponse } from '../../utils/config/apiClient';
 import { validate } from '../../utils/validation';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.PERPS.BASE_URL);
 const v2ApiClient = createApiClient(endpoints.PERPS_V2.BASE_URL);
@@ -23,6 +25,10 @@ describe('Perps API - Derivatives', () => {
   }, 60000);
 
   describe('Basic Response Validation', () => {
+    it('should expose CORS headers', () => {
+      expectCorsHeaders(overviewResponse);
+    });
+
     it('should return successful response with valid structure', () => {
       expectSuccessfulResponse(overviewResponse);
       expect(isPerpsOverviewResponse(overviewResponse.data)).toBe(true);
@@ -162,7 +168,7 @@ describe('Perps API - Derivatives', () => {
 
     it('should have valid chart data when present', () => {
       if (!overviewResponse.data.protocols) return;
-      
+
       const protocolsWithChart = overviewResponse.data.protocols
         .filter((p) => p.totalDataChart && p.totalDataChart.length > 0)
         .slice(0, 5);
@@ -171,7 +177,7 @@ describe('Perps API - Derivatives', () => {
         protocolsWithChart.forEach((protocol) => {
           expect(Array.isArray(protocol.totalDataChart)).toBe(true);
           expect(protocol.totalDataChart!.length).toBeGreaterThan(0);
-          
+
           protocol.totalDataChart!.slice(0, 5).forEach(([timestamp, value]) => {
             expectValidNumber(timestamp);
             expectValidNumber(value);
@@ -179,6 +185,13 @@ describe('Perps API - Derivatives', () => {
           });
         });
       }
+    });
+
+    it('should have a fresh aggregate totalDataChart (within 2 days)', () => {
+      const chart = (overviewResponse.data as any).totalDataChart;
+      if (!Array.isArray(chart) || chart.length === 0) return;
+      // Daily volume rollups can lag a day; 2-day budget tolerates the snapshot cadence.
+      expectFreshData(chart.map((p: any[]) => p[0]), 86400 * 2);
     });
   });
 });
@@ -207,6 +220,10 @@ describe('Perps API - Summary', () => {
       v2Responses[protocol] = v2Results[index];
     });
   }, 90000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(responses[testProtocols[0]]);
+  });
 
   testProtocols.forEach((protocol) => {
     describe(`Protocol: ${protocol}`, () => {
@@ -283,6 +300,16 @@ describe('Perps API - Summary', () => {
             expectValidNumber(data.total30d);
             expectNonNegativeNumber(data.total30d);
           }
+
+          if (data.total1y !== null && data.total1y !== undefined) {
+            expectValidNumber(data.total1y);
+            expectNonNegativeNumber(data.total1y);
+          }
+
+          if (data.annualized1y !== null && data.annualized1y !== undefined) {
+            expectValidNumber(data.annualized1y);
+            expectNonNegativeNumber(data.annualized1y);
+          }
         });
 
         it('should have valid change percentage when present', () => {
@@ -325,6 +352,7 @@ describe('Perps API - Summary', () => {
           expectChainBreakdownTotalsToMatch(data, 'total48hto24h');
           expectChainBreakdownTotalsToMatch(data, 'total7d');
           expectChainBreakdownTotalsToMatch(data, 'total30d');
+          expectChainBreakdownTotalsToMatch(data, 'total1y');
           expectChainBreakdownTotalsToMatch(data, 'totalAllTime');
         });
       });
@@ -393,7 +421,7 @@ describe('Perps API - Summary', () => {
 
 function expectChainBreakdownTotalsToMatch(
   data: PerpsSummaryResponse,
-  key: 'total24h' | 'total48hto24h' | 'total7d' | 'total30d' | 'totalAllTime'
+  key: 'total24h' | 'total48hto24h' | 'total7d' | 'total30d' | 'total1y' | 'totalAllTime'
 ) {
   if (!data.chainBreakdown) return;
 

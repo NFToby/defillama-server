@@ -9,6 +9,7 @@ import {
   expectFreshData,
 } from '../../utils/testHelpers';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.FEES.BASE_URL);
 
@@ -25,6 +26,10 @@ describe('Fees API - Overview Fees', () => {
     overviewResponse = r1;
     chainResponse = r2;
   }, 30000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(overviewResponse);
+  });
 
   describe('All Fees Overview', () => {
     describe('Basic Response Validation', () => {
@@ -80,7 +85,7 @@ describe('Fees API - Overview Fees', () => {
 
       it('should have protocols in response', () => {
         // Count all non-standard fields as potential protocols
-        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
+        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'annualized1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
         const protocolKeys = Object.keys(overviewResponse.data).filter(
           key => !excludedKeys.includes(key)
         );
@@ -97,7 +102,7 @@ describe('Fees API - Overview Fees', () => {
 
     describe('Protocol Item Validation', () => {
       it('should have valid protocol data at root level', () => {
-        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
+        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'annualized1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
         const protocolKeys = Object.keys(overviewResponse.data).filter(
           key => !excludedKeys.includes(key)
         );
@@ -113,7 +118,7 @@ describe('Fees API - Overview Fees', () => {
       });
 
       it('should have valid fee metrics when present', () => {
-        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
+        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'annualized1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
         const protocolKeys = Object.keys(overviewResponse.data).filter(
           key => !excludedKeys.includes(key)
         );
@@ -133,7 +138,7 @@ describe('Fees API - Overview Fees', () => {
       });
 
       it('should have valid chains arrays when present', () => {
-        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
+        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'annualized1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
         const protocolKeys = Object.keys(overviewResponse.data).filter(
           key => !excludedKeys.includes(key)
         );
@@ -206,7 +211,7 @@ describe('Fees API - Overview Fees', () => {
 
     describe('Data Quality Validation', () => {
       it('should have protocols with data', () => {
-        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
+        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'annualized1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
         const protocolKeys = Object.keys(chainResponse.data).filter(
           key => !excludedKeys.includes(key)
         );
@@ -220,7 +225,7 @@ describe('Fees API - Overview Fees', () => {
       });
 
       it('should have protocols for the correct chain when chains specified', () => {
-        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
+        const excludedKeys = ['totalDataChart', 'totalDataChartBreakdown', 'breakdown24h', 'breakdown30d', 'chain', 'allChains', 'total24h', 'total48hto24h', 'total7d', 'total14dto7d', 'total30d', 'total60dto30d', 'total1y', 'annualized1y', 'totalAllTime', 'total7DaysAgo', 'total30DaysAgo', 'change_1d', 'change_7d', 'change_1m', 'change_7dover7d', 'change_30dover30d', 'protocols'];
         const protocolKeys = Object.keys(chainResponse.data).filter(
           key => !excludedKeys.includes(key)
         );

@@ -7,6 +7,13 @@ import { ostiumAdapter } from "./adapters/ostium";
 import { avantisAdapter } from "./adapters/avantis";
 import { helixAdapter } from "./adapters/helix";
 import { extendedAdapter } from "./adapters/extended";
+import { lighterAdapter } from "./adapters/lighter";
+import { edgexAdapter } from "./adapters/edgex";
+import { asterAdapter } from "./adapters/aster";
+import { apexAdapter } from "./adapters/apex";
+import { gmtradeAdapter } from "./adapters/gmtrade";
+import { variationalAdapter } from "./adapters/variational";
+import { parclAdapter } from "./adapters/parcl";
 
 /** All implemented adapters — used by preview tooling and tests. */
 const ALL_ADAPTERS: PlatformAdapter[] = [
@@ -16,6 +23,13 @@ const ALL_ADAPTERS: PlatformAdapter[] = [
   avantisAdapter,
   helixAdapter,
   extendedAdapter,
+  lighterAdapter,
+  edgexAdapter,
+  asterAdapter,
+  apexAdapter,
+  gmtradeAdapter,
+  variationalAdapter,
+  parclAdapter,
 ];
 
 /** Adapters that are live in the pipeline / cron / API. */
@@ -25,6 +39,13 @@ const PUBLISHED_ADAPTERS: PlatformAdapter[] = [
   gtradeAdapter,
   helixAdapter,
   extendedAdapter,
+  lighterAdapter,
+  edgexAdapter,
+  asterAdapter,
+  apexAdapter,
+  gmtradeAdapter,
+  variationalAdapter,
+  parclAdapter,
 ];
 
 const ADAPTER_MAP = new Map<string, PlatformAdapter>(

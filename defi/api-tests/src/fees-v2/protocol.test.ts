@@ -11,6 +11,7 @@ import {
 } from '../../utils/testHelpers';
 import { validate } from '../../utils/validation';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.FEES_V2.BASE_URL);
 const FEES_V2_ENDPOINTS = endpoints.FEES_V2;
@@ -28,6 +29,10 @@ describe('Fees V2 API - Metrics Protocol Overview', () => {
       })
     );
   }, 60000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(responses[testProtocols[0]]);
+  });
 
   describe('Basic Response Validation', () => {
     testProtocols.forEach((protocolSlug) => {
@@ -74,13 +79,19 @@ describe('Fees V2 API - Metrics Protocol Overview', () => {
           }
         });
 
-        it('should have total7d and total30d if present', () => {
+        it('should have total7d, total30d and total1y if present', () => {
           const data = responses[protocolSlug].data;
           if (data.total7d !== null && data.total7d !== undefined) {
             expectValidNumber(data.total7d);
           }
           if (data.total30d !== null && data.total30d !== undefined) {
             expectValidNumber(data.total30d);
+          }
+          if (data.total1y !== null && data.total1y !== undefined) {
+            expectValidNumber(data.total1y);
+          }
+          if (data.annualized1y !== null && data.annualized1y !== undefined) {
+            expectValidNumber(data.annualized1y);
           }
         });
 

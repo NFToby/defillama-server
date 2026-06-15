@@ -70,5 +70,10 @@ export async function fetchTokensList(chain: string): Promise<TokenListEntry[]> 
   const base = v4Base();
   if (!base) throw new Error("fetchTokensList: COINS_V4_API_URL not set — tokens list requires the coins v4 API");
   const r = await axios.get(`${base}/tokens/list`, { params: { chain }, headers: v4Headers() });
-  return r.data?.tokens ?? [];
+  const tokens: TokenListEntry[] = r.data?.tokens ?? [];
+  return tokens.filter((t) => isValidAddress(t?.address));
+}
+
+function isValidAddress(addr: unknown): addr is string {
+  return typeof addr === "string" && addr.length > 0 && addr !== "null" && addr !== "undefined";
 }

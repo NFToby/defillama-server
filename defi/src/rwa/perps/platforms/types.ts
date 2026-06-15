@@ -30,10 +30,17 @@ export interface ParsedPerpsMarket {
   fundingRate: number;
   /** Premium over index (0 if not applicable) */
   premium: number;
-  /** Maximum leverage offered */
-  maxLeverage: number;
+  /** Maximum leverage offered. `null` when the venue does not expose this on a
+   *  public, unauthenticated endpoint (e.g. Aster's `/leverageBracket` is auth-
+   *  gated). Existing adapters return `0` as a "missing" sentinel; new adapters
+   *  should prefer `null` so absence is distinguishable from a zero value. */
+  maxLeverage: number | null;
   /** Size decimals (0 if not applicable) */
   szDecimals: number;
+  /** Optional venue-sourced maker fee rate; falls back to Airtable metadata. */
+  makerFeeRate?: number | null;
+  /** Optional venue-sourced taker fee rate; falls back to Airtable metadata. */
+  takerFeeRate?: number | null;
 }
 
 export interface FundingEntry {
@@ -98,4 +105,26 @@ export async function safeFetch<T>(
 export function pctChange(current: number, previous: number): number {
   if (previous <= 0) return 0;
   return ((current - previous) / previous) * 100;
+}
+
+/**
+ * Convert a market's raw `openInterest` to USD notional.
+ *
+ * Adapters set `oiIsNotional: true` when their API already returns OI in USD
+ * (e.g. Extended). Otherwise OI is in base-asset units and must be multiplied
+ * by `markPx` (e.g. Hyperliquid, Lighter, edgeX). When `adapter` is null/
+ * undefined we default to multiplying — matches the behavior of the prod
+ * pipeline (`perps.ts`) when an adapter lookup misses.
+ *
+ * SINGLE SOURCE OF TRUTH for OI normalization. The prod ingest in `perps.ts`
+ * and the preview HTML in `cli/previewAdapters.ts` BOTH call this — do not
+ * inline the multiplication anywhere else.
+ */
+export function normalizeOpenInterestUsd(
+  market: ParsedPerpsMarket,
+  adapter: { oiIsNotional: boolean } | null | undefined,
+): number {
+  return adapter?.oiIsNotional
+    ? market.openInterest
+    : market.openInterest * market.markPx;
 }

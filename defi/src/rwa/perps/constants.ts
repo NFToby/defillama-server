@@ -22,6 +22,7 @@ export interface PerpsContractMetadata {
     description: string | null;
     accessModel: string | null;
     rwaClassification: string | null;
+    link: string | null;
     makerFeeRate: number;
     takerFeeRate: number;
     deployerFeeShare: number;
@@ -45,12 +46,24 @@ export const PERPS_STRING_OR_NULL_FIELDS = new Set<string>([
     "description",
     "accessModel",
     "rwaClassification",
+    "link",
 ]);
 
 const CONTRACT_METADATA: { [contractId: string]: PerpsContractMetadata } = {};
-// Alias map: base contract name (without margin-asset suffix) → full canonical key
-// e.g. "cash:hood" → "cash:hood-usdt"
+// Alias map: source/API contract variants → full canonical key. Aliases are
+// registered only while collision-free; ambiguous aliases are deliberately
+// unresolved so missing metadata stays visible.
 const CONTRACT_ALIAS: { [base: string]: string } = {};
+const AMBIGUOUS_CONTRACT_ALIAS = new Set<string>();
+
+const FOREX_CODES = new Set([
+    "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "NOK", "SEK", "DKK",
+    "SGD", "HKD", "CNY", "CNH", "MXN", "ZAR", "TRY", "PLN", "CZK", "HUF",
+    "INR", "BRL", "KRW", "TWD", "THB",
+]);
+
+const STABLE_QUOTE_CODES = new Set(["usd", "usdc", "usdt", "usdh"]);
+const GTRADE_LEGACY_USD_BASE_FX_QUOTES = new Set(["jpy", "chf", "cad"]);
 
 const PERPS_METADATA_KEY_MAP = {
     contract: "Canonical Market ID",
@@ -68,6 +81,7 @@ const PERPS_METADATA_KEY_MAP = {
     description: "Description",
     accessModel: "Access Model",
     rwaClassification: "RWA Classification",
+    link: "Ref Links",
     makerFeeRate: "Maker Fee Rate",
     takerFeeRate: "Taker Fee Rate",
     deployerFeeShare: "Deployer Fee Share",
@@ -98,19 +112,82 @@ export function normalizePerpsMetadataInPlace(target: any): any {
     return target;
 }
 
+function isForexCode(code: string): boolean {
+    return FOREX_CODES.has(code.toUpperCase());
+}
+
+function splitContractKey(key: string): { prefix: string; market: string } {
+    const colonIdx = key.indexOf(":");
+    if (colonIdx < 0) return { prefix: "", market: key };
+    return {
+        prefix: key.slice(0, colonIdx),
+        market: key.slice(colonIdx + 1),
+    };
+}
+
+function joinContractKey(prefix: string, market: string): string {
+    return prefix ? `${prefix}:${market}` : market;
+}
+
+function registerContractAlias(alias: string | undefined, canonicalKey: string): void {
+    if (!alias) return;
+    const normalizedAlias = alias.toLowerCase();
+    if (!normalizedAlias || normalizedAlias === canonicalKey) return;
+    if (AMBIGUOUS_CONTRACT_ALIAS.has(normalizedAlias)) return;
+
+    const existing = CONTRACT_ALIAS[normalizedAlias];
+    if (existing && existing !== canonicalKey) {
+        delete CONTRACT_ALIAS[normalizedAlias];
+        AMBIGUOUS_CONTRACT_ALIAS.add(normalizedAlias);
+        return;
+    }
+
+    CONTRACT_ALIAS[normalizedAlias] = canonicalKey;
+}
+
+function getContractAliasCandidates(canonicalKey: string): string[] {
+    const { prefix, market } = splitContractKey(canonicalKey);
+    const candidates = new Set<string>();
+    const [base, quote, extra] = market.split("-");
+
+    if (base && quote && !extra) {
+        if (STABLE_QUOTE_CODES.has(quote)) {
+            candidates.add(joinContractKey(prefix, base));
+        }
+        if (isForexCode(base) && isForexCode(quote)) {
+            candidates.add(joinContractKey(prefix, `${base}${quote}`));
+        }
+    } else if (market && !quote) {
+        for (const stableQuote of STABLE_QUOTE_CODES) {
+            candidates.add(joinContractKey(prefix, `${market}-${stableQuote}`));
+        }
+
+        const compactBase = market.slice(0, 3);
+        const compactQuote = market.slice(3);
+        if (market.length === 6 && isForexCode(compactBase) && isForexCode(compactQuote)) {
+            candidates.add(joinContractKey(prefix, `${compactBase}-${compactQuote}`));
+        }
+
+        // Legacy Airtable rows model these gTrade USD-base FX pairs by quote currency
+        // (e.g. JPY) while the source API emits USD-JPY.
+        if (prefix === "gtrade" && GTRADE_LEGACY_USD_BASE_FX_QUOTES.has(market)) {
+            candidates.add(joinContractKey(prefix, `usd-${market}`));
+        }
+    }
+
+    return [...candidates];
+}
+
+function registerContractAliases(canonicalKey: string): void {
+    for (const alias of getContractAliasCandidates(canonicalKey)) {
+        registerContractAlias(alias, canonicalKey);
+    }
+}
+
 export function resolveContractKey(contract: string): string | undefined {
     const key = contract.toLowerCase();
     if (key in CONTRACT_METADATA) return key;
     if (key in CONTRACT_ALIAS) return CONTRACT_ALIAS[key];
-
-    const colonIdx = key.indexOf(":");
-    const afterColon = colonIdx >= 0 ? colonIdx + 1 : 0;
-    const hyphenIdx = key.indexOf("-", afterColon);
-    if (hyphenIdx > afterColon) {
-        const stripped = key.substring(0, hyphenIdx);
-        if (stripped in CONTRACT_METADATA) return stripped;
-        if (stripped in CONTRACT_ALIAS) return CONTRACT_ALIAS[stripped];
-    }
 
     return undefined;
 }
@@ -121,16 +198,26 @@ export function getContractMetadata(contract: string): PerpsContractMetadata | n
 }
 
 export function setContractMetadata(contract: string, metadata: PerpsContractMetadata): void {
-    CONTRACT_METADATA[contract.toLowerCase()] = metadata;
+    const key = contract.toLowerCase();
+    CONTRACT_METADATA[key] = metadata;
+    registerContractAliases(key);
 }
 
 export function hasContractMetadata(contract: string): boolean {
     return resolveContractKey(contract) !== undefined;
 }
 
+/** Number of contracts with loaded metadata. 0 means the Airtable sheet hasn't
+ * been loaded (e.g. preview CLI) — adapters use this to fall back to emitting
+ * all markets rather than filtering against an empty store. */
+export function getContractMetadataCount(): number {
+    return Object.keys(CONTRACT_METADATA).length;
+}
+
 export function resetContractMetadataStore(): void {
     for (const key of Object.keys(CONTRACT_METADATA)) delete CONTRACT_METADATA[key];
     for (const key of Object.keys(CONTRACT_ALIAS)) delete CONTRACT_ALIAS[key];
+    AMBIGUOUS_CONTRACT_ALIAS.clear();
 }
 
 export function getContractId(contract: string): string {
@@ -142,12 +229,6 @@ export const CIRCUIT_BREAKER_THRESHOLD = 0.5;
 // ---------------------------------------------------------------------------
 // Crypto / forex filters — used to suppress non-RWA markets in skip alerts
 // ---------------------------------------------------------------------------
-
-const FOREX_CODES = new Set([
-    "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "NOK", "SEK", "DKK",
-    "SGD", "HKD", "CNY", "CNH", "MXN", "ZAR", "TRY", "PLN", "CZK", "HUF",
-    "INR", "BRL", "KRW", "TWD", "THB",
-]);
 
 const CRYPTO_TICKERS = new Set([
     "BTC", "ETH", "SOL", "DOGE", "XRP", "ADA", "AVAX", "DOT", "MATIC", "LINK",
@@ -234,6 +315,7 @@ export async function loadContractMetadataFromAirtable(): Promise<number> {
             description: toStringOrNull(mapped.description),
             accessModel: toStringOrNull(mapped.accessModel),
             rwaClassification: toStringOrNull(mapped.rwaClassification),
+            link: toStringOrNull(mapped.link),
             makerFeeRate: toNum(mapped.makerFeeRate, HYPERLIQUID_MAKER_FEE),
             takerFeeRate: toNum(mapped.takerFeeRate, HYPERLIQUID_TAKER_FEE),
             deployerFeeShare: toNum(mapped.deployerFeeShare, HYPERLIQUID_DEPLOYER_SHARE),
@@ -241,18 +323,6 @@ export async function loadContractMetadataFromAirtable(): Promise<number> {
 
         normalizePerpsMetadataInPlace(metadata);
         setContractMetadata(trimmed, metadata);
-
-        // Register suffix-stripped alias so Hyperliquid names like "cash:HOOD"
-        // match Airtable entries like "cash:HOOD-USDT" or "flx:OIL-USDH"
-        const colonIdx = trimmed.indexOf(":");
-        const afterColon = colonIdx >= 0 ? colonIdx + 1 : 0;
-        const hyphenIdx = trimmed.indexOf("-", afterColon);
-        if (hyphenIdx > afterColon) {
-            const base = trimmed.substring(0, hyphenIdx).toLowerCase();
-            if (!(base in CONTRACT_METADATA) && !(base in CONTRACT_ALIAS)) {
-                CONTRACT_ALIAS[base] = trimmed.toLowerCase();
-            }
-        }
 
         count++;
     }

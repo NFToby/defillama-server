@@ -9,6 +9,7 @@ import {
   expectFreshData,
 } from '../../utils/testHelpers';
 import { ApiResponse } from '../../utils/config/apiClient';
+import { expectCorsHeaders } from '../../utils/corsHelpers';
 
 const apiClient = createApiClient(endpoints.NEW_USERS_DIM.BASE_URL);
 
@@ -28,6 +29,10 @@ describe('New Users API - Summary', () => {
       responses[protocol] = results[index];
     });
   }, 30000);
+
+  it('should expose CORS headers', () => {
+    expectCorsHeaders(responses[testProtocols[0]]);
+  });
 
   describe.each(testProtocols)('Protocol: %s', (protocol) => {
     describe('Basic Response Validation', () => {
@@ -69,6 +74,16 @@ describe('New Users API - Summary', () => {
         if (data.total30d !== null && data.total30d !== undefined) {
           expectValidNumber(data.total30d);
           expectNonNegativeNumber(data.total30d);
+        }
+
+        if (data.total1y !== null && data.total1y !== undefined) {
+          expectValidNumber(data.total1y);
+          expectNonNegativeNumber(data.total1y);
+        }
+
+        if (data.annualized1y !== null && data.annualized1y !== undefined) {
+          expectValidNumber(data.annualized1y);
+          expectNonNegativeNumber(data.annualized1y);
         }
       });
 

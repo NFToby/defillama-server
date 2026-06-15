@@ -83,12 +83,55 @@ async function feUBTC(timestamp: number = 0) {
   const balance = (await api.call({ abi: "erc20:balanceOf", params: feUBTC, target: UBTC })) / 1e8
   pricesObject[feUBTC] = { price: balance / supply, underlying: UBTC };
 
-  // wHLP
+  // wHLP — price at the on-chain redeemable NAV (accountant getRate), the same rate the Morpho oracle uses.
+  // confidence 1 so the coingecko platform-sync stops redirecting this asset to the thin/noisy coingecko
+  // 'wrapped-hlp' market price (see the >=0.99 gate in utils/coingeckoPlatforms.ts). A one-time clear of the
+  // existing CG redirect (cli/updateCoinFields.ts) is needed for the switch to take effect after deploy.
   const wHLP = "0x1359b05241cA5076c9F59605214f4F84114c0dE8";
   const wHLPRate = (await api.call({ abi: "uint256:getRate", target: '0x470bd109a24f608590d85fc1f5a4b6e625e8bdff' })) / 1e18;
-  pricesObject[wHLP] = { price: wHLPRate * 1e12 };
+  pricesObject[wHLP] = { price: wHLPRate * 1e12, confidence: 1 };
 
   return getWrites({ chain, timestamp, pricesObject, projectName: "other2", });
+}
+
+async function valantisStexAMMs(timestamp: number = 0) {
+  const chain = "hyperliquid";
+  const api = await getApi(chain, timestamp);
+  // Valantis STEX AMMs on Hyperliquid: token0 is the LST, token1 is HYPE.
+  // Total TVL is NOT just pool reserves — withdrawal module holds extra token0
+  // pending unstaking and extra token1 in a lending pool / claimable buffer.
+  const amms = [
+    { amm: "0xbf747d2959f03332dbd25249db6f00f62c6cb526" }, // kmHYPE (kHYPE/HYPE)
+    { amm: "0x39694eFF3b02248929120c73F90347013Aec834d" }, // stHYPE AMM (stHYPE/HYPE)
+  ];
+  const meta = await Promise.all(amms.map(({ amm }) => Promise.all([
+    api.call({ abi: "address:token0", target: amm }),
+    api.call({ abi: "address:token1", target: amm }),
+    api.call({ abi: "address:pool", target: amm }),
+    api.call({ abi: "address:withdrawalModule", target: amm }),
+  ])));
+  const data = await Promise.all(amms.map(({ amm }, i) => {
+    const [, , pool, wm] = meta[i];
+    return Promise.all([
+      api.call({ abi: "function getReserves() view returns (uint256, uint256)", target: pool }),
+      api.call({ abi: "uint256:amountToken0PendingUnstaking", target: wm }),
+      api.call({ abi: "uint256:amountToken1LendingPool", target: wm }),
+      api.call({ abi: "function convertToToken1(uint256) view returns (uint256)", target: wm, params: "1000000000000000000" }),
+      api.call({ abi: "erc20:totalSupply", target: amm }),
+    ]);
+  }));
+  const pricesObject: any = {};
+  amms.forEach(({ amm }, i) => {
+    const [token0, token1] = meta[i];
+    const [reserves, pendingUnstake, lendingPool, rate1e18, supply] = data[i];
+    // convertToToken1 from the withdrawal module accounts for the LST/HYPE redemption rate.
+    // amountToken1ClaimableLPWithdrawal is excluded — it's earmarked for LPs who already burned shares.
+    const lstRate = rate1e18 / 1e18;
+    const tvl = (+reserves[0] + +pendingUnstake) * lstRate + +reserves[1] + +lendingPool;
+    pricesObject[amm] = { price: tvl / supply, underlying: token1 };
+    pricesObject[token0] = { price: lstRate, underlying: token1 };
+  });
+  return getWrites({ chain, timestamp, pricesObject, projectName: "other2" });
 }
 
 async function beraborrow(timestamp: number = 0) {
@@ -201,6 +244,70 @@ async function wJAAA(timestamp: number = 0) {
   return getWrites({ chain, timestamp, pricesObject, projectName: "other2", });
 };
 
+async function wUSCC(timestamp: number = 0) {
+  const chain = "ethereum";
+
+  const api = await getApi(chain, timestamp);
+  const token = "0xF458Ad24B1dE7c653e8471efB0b87710b316b7D9";
+  const underlying = "0x14d60E7FDC0D71d8611742720E4C50E7a974020c";
+  const balance = await api.call({ abi: 'erc20:balanceOf', target: underlying, params: token })
+  const supply = await api.call({ abi: 'erc20:totalSupply', target: token })
+  const price = balance / supply
+  const pricesObject: any = {
+    [token]: { price, underlying }
+  }
+  return getWrites({ chain, timestamp, pricesObject, projectName: "other2", });
+};
+
+async function nDEPS(timestamp: number = 0) {
+  const chain = "ethereum";
+
+  const api = await getApi(chain, timestamp);
+  // dEURO (Frankencoin fork) Equity share nDEPS, and its 1:1 ERC20Wrapper DEPS
+  const ndeps = "0xc71104001A3CCDA1BEf1177d765831Bd1bfE8eE6";
+  const deps = "0x103747924E74708139a9400e4Ab4BEA79FFFA380";
+  const underlying = "0xbA3f535bbCcCcA2A154b573Ca6c5A49BAAE0a3ea"; // dEURO
+  // Equity.price() returns the price of one nDEPS denominated in dEURO, 18 decimals
+  const rawPrice = await api.call({ abi: 'function price() view returns (uint256)', target: ndeps })
+  const price = rawPrice / 1e18
+  const pricesObject: any = {
+    [ndeps]: { price, underlying },
+    [deps]: { price, underlying }, // DEPSWrapper is a 1:1 OZ ERC20Wrapper over nDEPS
+  }
+  return getWrites({ chain, timestamp, pricesObject, projectName: "other2", });
+}
+async function FPS(timestamp: number = 0) {
+  const chain = "ethereum";
+
+  const api = await getApi(chain, timestamp);
+  // Frankencoin Equity share FPS, and its 1:1 ERC20Wrapper WFPS
+  const fps = "0x1bA26788dfDe592fec8bcB0Eaff472a42BE341B2";
+  const wfps = "0x5052D3Cc819f53116641e89b96Ff4cD1EE80B182";
+  const underlying = "0xB58E61C3098d85632Df34EecfB899A1Ed80921cB"; // ZCHF
+  // Equity.price() returns the price of one FPS denominated in ZCHF, 18 decimals
+  const rawPrice = await api.call({ abi: 'function price() view returns (uint256)', target: fps })
+  const price = rawPrice / 1e18
+  const pricesObject: any = {
+    [fps]: { price, underlying },
+    [wfps]: { price, underlying }, // FPSWrapper is a 1:1 OZ ERC20Wrapper over FPS
+  }
+  return getWrites({ chain, timestamp, pricesObject, projectName: "other2", });
+};
+async function wFalconX(timestamp: number = 0) {
+  const chain = "ethereum";
+
+  const api = await getApi(chain, timestamp);
+  const token = "0x4614F7A56A3Eb83b2Ff9fA4B4b9575B28Fb68644";
+  const underlying = "0xC26A6Fa2C37b38E549a4a1807543801Db684f99C";
+  const balance = await api.call({ abi: 'erc20:balanceOf', target: underlying, params: token })
+  const supply = await api.call({ abi: 'erc20:totalSupply', target: token })
+  const price = balance / supply
+  const pricesObject: any = {
+    [token]: { price, underlying }
+  }
+  return getWrites({ chain, timestamp, pricesObject, projectName: "other2", });
+};
+
 async function prism(timestamp: number = 0) {
   const chain = "ethereum";
 
@@ -220,8 +327,7 @@ async function prism(timestamp: number = 0) {
 export const adapters = {
   solanaAVS,
   wstBFC, stOAS, wSTBT, beraborrow, feUBTC, cabal, cana, pikeSPA,
-  fusdlp, wJAAA, prism,
-
+  fusdlp, wJAAA, wUSCC, nDEPS, FPS, wFalconX, prism, valantisStexAMMs,
   springSUI: async (timestamp: number = 0) => {
     if (timestamp > 0 && Date.now() / 1000 - timestamp > 86400) {
       throw new Error("Timestamp is more than a day old, this adapter does not support historical prices");

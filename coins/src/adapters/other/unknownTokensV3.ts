@@ -1,6 +1,8 @@
 import { getApi } from "../utils/sdk";
 import getWrites from "../utils/getWrites";
-import { runInPromisePool } from "@defillama/sdk/build/generalUtil";
+
+import * as sdk from '@defillama/sdk'
+const { runInPromisePool } = sdk.util;
 const projectName = "unknownTokensV3";
 
 const slot0Abi =
@@ -51,6 +53,10 @@ const config: any = {
       "0xC5c134A1f112efA96003f8559Dba6fAC0BA77692", // WHITE
     "0x63d74d22E689C715a04F2C13962b1f77F443d35b": 
       "0x206239406AbcCf730493e4b133b30df546F9Ff43", // DUSD
+    "0xC96dE26018A54D51c097160568752c4E3BD6C364":
+      "0x9dbe5dFfAEB4Ac2e0ac14F8B4e08b3bc55De5232", // FBTC
+    "0xc152d5A599F83B3d0098cbAdb23FcE95F27Ff30B":
+      "0x9dbe5dFfAEB4Ac2e0ac14F8B4e08b3bc55De5232", // lfbtc-cian-eth via FBTC/WBTC
   },
   kroma: {
     "0x61e0D34b5206Fa8005EC1De8000df9B9dDee23Db":
@@ -75,16 +81,22 @@ const config: any = {
   base: {
     "0xf7178122A087eF8F5c7BeA362b7DaBE38F20Bf05":
       "0x2019DEB4E18107A2FD8B4acBC7e3878037336fc2", // OMNI
+    "0xB738b1568F08B0d6894a580Ef805E9298ebFaB46":
+      "0xf630370cBFEB1d04c5C7B564143010E8d30b4e10", // LAND
   },
   hyperliquid: {
     "0x876e7F2f30935118a654fc0E1f807aFc49EFe500":
       "0xe9c02ca07931f9670fa87217372b3c9aa5a8a934", // PUP
   },
   etlk: {
-    "0x93f5475da60143c50e8be3fed10c143b0cf8b9e9": 
+    "0x93f5475da60143c50e8be3fed10c143b0cf8b9e9":
       "0x86d2f4ef99915652bfc3adf29683752334582b4d", // VNXAU
-    "0x6Ce393fF9Ed5465CC4DEf456B8401e03cEF64d5e": 
+    "0x6Ce393fF9Ed5465CC4DEf456B8401e03cEF64d5e":
     "0x35C888a9afc0866Fec5bBAdEf790e5EC1d845653", // RARE
+  },
+  megaeth: {
+    "0x8f77a685bde702e6d32a103e9aeb41906317d7e5":
+      "0x3fa634c81Ee8aa78C4f37364e6FECcB8a89c0032", // RBT
   }
 };
 
